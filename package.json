@@ -1,0 +1,27 @@
+{
+  "name": "blackjack-roguelike",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "@types/seedrandom": "*",
+    "eslint": "*",
+    "eslint-config-prettier": "*",
+    "prettier": "*",
+    "tsx": "*",
+    "typescript": "*",
+    "typescript-eslint": "*",
+    "vitest": "*",
+    "@vitest/coverage-v8": "*",
+    "@vitest/ui": "*"
+  },
+  "dependencies": {
+    "seedrandom": "*"
+  }
+}
