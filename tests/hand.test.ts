@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateHandScore, isBlackJack, isBust } from '../src/core/hand.js';
+import { calculateHandScore, isBlackjack, isBust } from '../src/core/hand.js';
 import { Card } from '../src/core/types.js';
 
 function card(rank: string, suit: string = 'hearts'): Card {
@@ -44,9 +44,9 @@ describe('Hand scoring', () => {
   });
 
   it('should detect blackjack', () => {
-    expect(isBlackJack([card('A'), card('K')])).toBe(true);
-    expect(isBlackJack([card('10'), card('A')])).toBe(true);
-    expect(isBlackJack([card('A'), card('5'), card('5')])).toBe(false);
+    expect(isBlackjack([card('A'), card('K')])).toBe(true);
+    expect(isBlackjack([card('10'), card('A')])).toBe(true);
+    expect(isBlackjack([card('A'), card('5'), card('5')])).toBe(false);
   });
 
   it('should detect bust with isBust helper', () => {

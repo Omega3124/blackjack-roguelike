@@ -37,7 +37,7 @@ export function calculateHandScore(cards: readonly Card[]) : HandScore{
     isBust: total >21
    };
 }
-export function isBlackJack(cards: readonly Card[]): boolean {
+export function isBlackjack(cards: readonly Card[]): boolean {
     if(cards.length !==2) return false;
     const score = calculateHandScore(cards);
     return score.total ===21;
