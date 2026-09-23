@@ -23,6 +23,13 @@ export class Deck{
     shuffle(): void {
         this.cards = this.rng.shuffle(this.cards);
     }
+        remaining(): number {
+        return this.cards.length;
+    }
+        reset(): void{
+        this.cards = this.createDeck();
+        this.shuffle();
+    }
     draw(): Card{
         if(this.cards.length === 0){
             throw new Error('Колода пуста!');
@@ -31,13 +38,9 @@ export class Deck{
         if(!card) {
             throw new Error('Ошибка при извлечении карты');
         }
+                if (this.remaining() < 15) {
+            this.reset();
+        }
         return card;
-    }
-    remaining(): number {
-        return this.cards.length;
-    }
-    reset(): void{
-        this.cards = this.createDeck();
-        this.shuffle();
     }
 }

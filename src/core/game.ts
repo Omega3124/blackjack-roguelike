@@ -40,10 +40,30 @@ export class BlackjackGame {
     const playerHand: Card[] = [this.deck.draw(), this.deck.draw()];
     const dealerHand: Card[] = [this.deck.draw(), this.deck.draw()];
 
+    if (isBlackjack(playerHand) && isBlackjack(dealerHand)) {
+      this.state = {
+        state: 'gameOver',
+        result: 'push',
+        playerHand,
+        dealerHand
+      };
+      return;
+    }
+
     if (isBlackjack(playerHand)) {
       this.state = {
         state: 'gameOver',
         result: 'blackjack',
+        playerHand,
+        dealerHand
+      };
+      return;
+    }
+
+    if (isBlackjack(dealerHand)) {
+      this.state = {
+        state: 'gameOver',
+        result: 'dealerWin',
         playerHand,
         dealerHand
       };
@@ -69,7 +89,6 @@ export class BlackjackGame {
       state: 'playerTurn',
       playerHand: dealingState.playerHand,
       dealerHand: dealingState.dealerHand,
-      dealerVisibleCard: dealingState.dealerHand[0]
     };
   }
 
@@ -96,8 +115,7 @@ export class BlackjackGame {
     this.state = {
       state: 'playerTurn',
       playerHand: newHand,
-      dealerHand: playerState.dealerHand,
-      dealerVisibleCard: playerState.dealerVisibleCard
+      dealerHand: playerState.dealerHand
     };
   }
 
@@ -183,5 +201,6 @@ export class BlackjackGame {
     this.state = { state: 'idle' };
     this.bet = 0;
     this.balance = 0;
+    this.deck.reset();
   }
 }

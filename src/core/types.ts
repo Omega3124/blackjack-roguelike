@@ -15,7 +15,6 @@ export type Rank =
      state: 'playerTurn';
      playerHand: Card[];
      dealerHand: Card[];
-     dealerVisibleCard: Card;
   }
 | {state : 'dealerTurn'; playerHand: Card[]; dealerHand: Card[]}
 | { 
