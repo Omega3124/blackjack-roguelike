@@ -1,27 +1,18 @@
-/**
- * Симулятор для проверки баланса игры.
- * 
- * Прогоняет N игр с заданной стратегией и собирает статистику:
- * - Win rate игрока
- * - House edge (математическое преимущество казино)
- * - ROI (return on investment)
- * - Distribution результатов
- */
-
 import { BlackjackGame } from '../core/game.js';
-import { BasicStrategyAI, type PlayerAction, type AIDifficulty } from './strategy.js';
+import { BasicStrategyAI, type AIDifficulty } from './strategy.js';
+import type { Card } from './types.js';
 
 export interface SimulationConfig {
-  numGames: number;        // Количество игр для симуляции
-  initialBalance: number;  // Начальный баланс игрока
-  betSize: number;         // Размер ставки
+  numGames: number;
+  initialBalance: number;
+  betSize: number;
   aiDifficulty: AIDifficulty;
-  seed?: string;           // Для воспроизводимости
+  seed?: string;
 }
 
 export interface GameResult {
   outcome: 'win' | 'loss' | 'push' | 'blackjack';
-  payout: number;          // Выплата (положительная = выигрыш)
+  payout: number;
   finalBalance: number;
 }
 
@@ -35,11 +26,11 @@ export interface SimulationStats {
   totalWon: number;
   totalLost: number;
   netProfit: number;
-  winRate: number;         // (wins + blackjacks) / totalGames
+  winRate: number;
   lossRate: number;
   pushRate: number;
-  houseEdge: number;       // -netProfit / totalWagered (в %)
-  roi: number;             // netProfit / totalWagered * 100
+  houseEdge: number;
+  roi: number;
   avgPayout: number;
   maxWinStreak: number;
   maxLossStreak: number;
@@ -55,11 +46,11 @@ export class Simulator {
     this.ai = new BasicStrategyAI(config.aiDifficulty);
   }
 
-    run(): SimulationStats {
+  run(): SimulationStats {
     let balance = this.config.initialBalance;
-    let totalWagered = 0;      // Всего поставлено денег
-    let totalPayouts = 0;      // Всего получено выплат (включая возврат ставки)
-    let totalLostBets = 0;     // Сумма чисто проигранных ставок
+    let totalWagered = 0;
+    let totalPayouts = 0;
+    let totalLostBets = 0;
     let wins = 0;
     let losses = 0;
     let pushes = 0;
@@ -70,14 +61,10 @@ export class Simulator {
     let currentLossStreak = 0;
 
     for (let i = 0; i < this.config.numGames; i++) {
-      if (balance < this.config.betSize) {
-        break; // Игрок обанкротился
-      }
+      if (balance < this.config.betSize) break;
 
       const result = this.playSingleGame(balance);
       balance = result.finalBalance;
-      
-      // Накапливаем общие метрики
       totalWagered += this.config.betSize;
       totalPayouts += result.payout;
 
@@ -111,8 +98,6 @@ export class Simulator {
     }
 
     const totalGames = wins + losses + pushes;
-    
-    // ✅ ПРАВИЛЬНАЯ ФОРМУЛА: Чистая прибыль = Все выплаты - Все ставки
     const netProfit = totalPayouts - totalWagered;
 
     return {
@@ -122,13 +107,12 @@ export class Simulator {
       pushes,
       blackjacks,
       totalWagered,
-      totalWon: totalPayouts,       // Для совместимости интерфейса
-      totalLost: totalLostBets,     // Для совместимости интерфейса
+      totalWon: totalPayouts,
+      totalLost: totalLostBets,
       netProfit,
       winRate: totalGames > 0 ? (wins + blackjacks) / totalGames : 0,
       lossRate: totalGames > 0 ? losses / totalGames : 0,
       pushRate: totalGames > 0 ? pushes / totalGames : 0,
-      // ✅ ПРАВИЛЬНЫЙ HOUSE EDGE: (Прибыль казино / Всего ставок) * 100
       houseEdge: totalWagered > 0 ? ((totalWagered - totalPayouts) / totalWagered) * 100 : 0,
       roi: totalWagered > 0 ? (netProfit / totalWagered) * 100 : 0,
       avgPayout: totalGames > 0 ? totalPayouts / totalGames : 0,
@@ -138,90 +122,55 @@ export class Simulator {
     };
   }
 
-    /**
-   * Сыграть одну игру с AI-ботом.
-   */
   private playSingleGame(startBalance: number): GameResult {
     const seed = `sim-${Date.now()}-${Math.random()}`;
     const game = new BlackjackGame(seed);
 
-    // Делаем ставку и раздаём карты
     game.startGame(this.config.betSize, startBalance);
     game.deal();
 
-    // ⚠️ ВАЖНО: Проверяем состояние после раздачи!
-    // Если сразу выпал Blackjack — игра уже закончилась
     let state = game.getState();
     if (state.state === 'gameOver') {
       return this.buildResult(game, startBalance);
     }
 
-    // Переходим в ход игрока
     game.playerTurn();
     state = game.getState();
 
-    // AI принимает решения пока не закончится ход игрока
     while (state.state === 'playerTurn') {
-      const playerHand = state.playerHand;
+      const currentHand = state.playerHands[state.currentHandIndex];
       const dealerCard = state.dealerHand[0];
-      const decision = this.ai.decide(playerHand, dealerCard);
-
+      const decision = this.ai.decide(currentHand, dealerCard);
       this.executeAction(game, decision.action);
-
-      // Обновляем состояние после действия
       state = game.getState();
-
-      // Если игра закончилась (bust) — выходим
-      if (state.state === 'gameOver') {
-        break;
-      }
+      if (state.state === 'gameOver') break;
     }
 
     return this.buildResult(game, startBalance);
   }
 
-  /**
-   * Собрать результат игры.
-   */
   private buildResult(game: BlackjackGame, startBalance: number): GameResult {
     const state = game.getState();
     const payout = game.getPayout();
     const profit = payout - this.config.betSize;
-
     let outcome: GameResult['outcome'];
 
     if (state.state === 'gameOver') {
       switch (state.result) {
-        case 'blackjack':
-          outcome = 'blackjack';
-          break;
-        case 'playerWin':
-          outcome = 'win';
-          break;
-        case 'dealerWin':
-          outcome = 'loss';
-          break;
-        case 'push':
-          outcome = 'push';
-          break;
-        default:
-          outcome = 'loss';
+        case 'blackjack': outcome = 'blackjack'; break;
+        case 'playerWin': outcome = 'win'; break;
+        case 'dealerWin': outcome = 'loss'; break;
+        case 'push': outcome = 'push'; break;
+        default: outcome = 'loss';
       }
     } else {
-      outcome = 'loss'; // shouldn't happen
+      outcome = 'loss';
     }
 
-   return {
-     outcome,
-     payout,
-      finalBalance: startBalance + profit,
-   };
+    return { outcome, payout, finalBalance: startBalance + profit };
   }
 
-  /**
-   * Выполнить действие AI в игре.
-   */
-  private executeAction(game: BlackjackGame, action: PlayerAction): void {
+  private executeAction(game: BlackjackGame, action: string): void {
     try {
       switch (action) {
         case 'hit':
@@ -231,28 +180,23 @@ export class Simulator {
           game.stand();
           break;
         case 'double':
-
-          game.hit();
+          game.double();
           break;
         case 'split':
-          // TODO: реализовать split в game.ts
-          game.hit();
+          game.split();
           break;
-        case 'surrender':
-          // TODO: реализовать surrender
+        case 'insurance':
+          game.insurance();
+          break;
+        default:
           game.stand();
-          break;
       }
     } catch (e) {
-      // Если действие невозможно — stand
       game.stand();
     }
   }
 }
 
-/**
- * Фабрика для создания симулятора.
- */
 export function createSimulator(config: SimulationConfig): Simulator {
   return new Simulator(config);
 }
