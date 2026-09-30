@@ -19,17 +19,17 @@ describe('Simulator', () => {
   });
 
   it('should stop when player is bankrupt', () => {
-  const sim = createSimulator({
-    numGames: 10000,
-    initialBalance: 10,
-    betSize: 10,
-    aiDifficulty: 'beginner',
-  });
-  const stats = sim.run();
-  expect(stats.totalGames).toBeLessThan(10000);
+    const sim = createSimulator({
+      numGames: 10000,
+      initialBalance: 10,  // ровно одна ставка
+      betSize: 10,
+      aiDifficulty: 'beginner',  // beginner проигрывает чаще
+    });
+    const stats = sim.run();
+    expect(stats.totalGames).toBeLessThan(10000);
   });
 
-  it('expert AI should have reasonable house edge', () => {
+  it('expert AI should have house edge close to theoretical 0.5%', () => {
     const sim = createSimulator({
       numGames: 1000,
       initialBalance: 10000,
@@ -37,8 +37,8 @@ describe('Simulator', () => {
       aiDifficulty: 'expert',
     });
     const stats = sim.run();
-    expect(stats.houseEdge).toBeGreaterThan(-100);
-    expect(stats.houseEdge).toBeLessThan(100);
+    expect(stats.houseEdge).toBeGreaterThanOrEqual(-5);
+    expect(stats.houseEdge).toBeLessThanOrEqual(10);
     expect(stats.totalGames).toBeGreaterThan(0);
   });
 });

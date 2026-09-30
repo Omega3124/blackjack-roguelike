@@ -1,6 +1,5 @@
 import { BlackjackGame } from '../core/game.js';
-import { BasicStrategyAI, type AIDifficulty } from './strategy.js';
-import type { Card } from './types.js';
+import { BasicStrategyAI, type PlayerAction, type AIDifficulty } from './strategy.js';
 
 export interface SimulationConfig {
   numGames: number;
@@ -14,6 +13,7 @@ export interface GameResult {
   outcome: 'win' | 'loss' | 'push' | 'blackjack';
   payout: number;
   finalBalance: number;
+  totalStake: number; // общая ставка за игру
 }
 
 export interface SimulationStats {
@@ -65,7 +65,8 @@ export class Simulator {
 
       const result = this.playSingleGame(balance);
       balance = result.finalBalance;
-      totalWagered += this.config.betSize;
+
+      totalWagered += result.totalStake;
       totalPayouts += result.payout;
 
       switch (result.outcome) {
@@ -84,7 +85,7 @@ export class Simulator {
           break;
         case 'loss':
           losses++;
-          totalLostBets += this.config.betSize;
+          totalLostBets += result.totalStake;
           currentLossStreak++;
           currentWinStreak = 0;
           maxLossStreak = Math.max(maxLossStreak, currentLossStreak);
@@ -137,6 +138,7 @@ export class Simulator {
     game.playerTurn();
     state = game.getState();
 
+    // AI принимает решения пока не закончится ход игрока
     while (state.state === 'playerTurn') {
       const currentHand = state.playerHands[state.currentHandIndex];
       const dealerCard = state.dealerHand[0];
@@ -152,7 +154,8 @@ export class Simulator {
   private buildResult(game: BlackjackGame, startBalance: number): GameResult {
     const state = game.getState();
     const payout = game.getPayout();
-    const profit = payout - this.config.betSize;
+    const totalStake = game.getTotalStake();
+    const profit = payout - totalStake;
     let outcome: GameResult['outcome'];
 
     if (state.state === 'gameOver') {
@@ -167,10 +170,15 @@ export class Simulator {
       outcome = 'loss';
     }
 
-    return { outcome, payout, finalBalance: startBalance + profit };
+    return {
+      outcome,
+      payout,
+      finalBalance: startBalance + profit,
+      totalStake
+    };
   }
 
-  private executeAction(game: BlackjackGame, action: string): void {
+  private executeAction(game: BlackjackGame, action: PlayerAction): void {
     try {
       switch (action) {
         case 'hit':
@@ -192,7 +200,14 @@ export class Simulator {
           game.stand();
       }
     } catch (e) {
-      game.stand();
+      const state = game.getState();
+      if (state.state === 'playerTurn') {
+        if (action === 'double') {
+          game.hit();
+        } else {
+          game.stand();
+        }
+      }
     }
   }
 }

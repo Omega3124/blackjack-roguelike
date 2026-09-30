@@ -39,7 +39,9 @@ export class BlackjackGame {
 
     const playerHasBlackjack = isBlackjack(playerHand);
     const dealerHasBlackjack = isBlackjack(dealerHand);
+    const dealerVisibleCard = dealerHand[0];
 
+    // Если у игрока blackjack и у дилера тоже - push
     if (playerHasBlackjack && dealerHasBlackjack) {
       this.state = {
         state: 'gameOver',
@@ -52,7 +54,9 @@ export class BlackjackGame {
       };
       return;
     }
-    if (playerHasBlackjack) {
+
+    // Если у игрока blackjack и у дилера НЕТ - игрок выигрывает
+    if (playerHasBlackjack && !dealerHasBlackjack) {
       this.state = {
         state: 'gameOver',
         result: 'blackjack',
@@ -64,8 +68,9 @@ export class BlackjackGame {
       };
       return;
     }
-    
-    if (dealerHasBlackjack && dealerHand[0].rank !== 'A') {
+
+    // Если у дилера blackjack, но открытая карта НЕ туз - страховка невозможна, игра заканчивается
+    if (dealerHasBlackjack && dealerVisibleCard.rank !== 'A') {
       this.state = {
         state: 'gameOver',
         result: 'dealerWin',
@@ -78,6 +83,7 @@ export class BlackjackGame {
       return;
     }
 
+    // Иначе переходим к ходу игрока (где можно будет взять страховку, если у дилера туз)
     this.state = {
       state: 'dealing',
       playerHand,
@@ -340,6 +346,7 @@ export class BlackjackGame {
     const dealerHasBlackjack = isBlackjack(playerState.dealerHand);
 
     if (dealerHasBlackjack) {
+      // Страховка выигрывает: выплата 2:1
       this.state = {
         state: 'gameOver',
         result: 'dealerWin',
@@ -352,10 +359,25 @@ export class BlackjackGame {
       return;
     }
 
+    // У дилера нет blackjack - страховка проигрывает, игра продолжается
     this.state = {
       ...playerState,
       insuranceBet: insuranceAmount
     };
+  }
+
+  /**
+   * Возвращает общую ставку игрока (сумма всех ставок + страховка)
+   * Используется симулятором для корректного расчёта house edge
+   */
+  getTotalStake(): number {
+    if (this.state.state === 'playerTurn' || this.state.state === 'dealerTurn' || this.state.state === 'gameOver') {
+      const state = this.state;
+      const betsSum = state.bets.reduce((sum, bet) => sum + bet, 0);
+      const insuranceBet = state.insuranceBet ?? 0;
+      return betsSum + insuranceBet;
+    }
+    return this.bet;
   }
 
   private dealerPlay(initialDealerHand: Card[]): void {
@@ -387,6 +409,11 @@ export class BlackjackGame {
       const playerScore = calculateHandScore(hand).total;
       const playerHasBlackjack = isBlackjack(hand) && !splitAces;
 
+      if (playerScore > 21) {
+        losses++;
+        continue;
+      }
+
       if (dealerHasBlackjack) {
         if (playerHasBlackjack) {
           pushes++;
@@ -396,7 +423,10 @@ export class BlackjackGame {
       } else if (playerHasBlackjack) {
         hasBlackjack = true;
         playerWins++;
-      } else if (dealerScore > 21 || playerScore > dealerScore) {
+      } else if (dealerScore > 21) {
+        // Дилер bust, игрок не bust (проверено выше) - игрок выигрывает
+        playerWins++;
+      } else if (playerScore > dealerScore) {
         playerWins++;
       } else if (playerScore < dealerScore) {
         losses++;
@@ -451,6 +481,12 @@ export class BlackjackGame {
       const playerScore = calculateHandScore(hand).total;
       const playerHasBlackjack = isBlackjack(hand) && !splitAces;
 
+      // Проверяем bust ПЕРЕД выплатой
+      if (playerScore > 21) {
+        // Bust: ставка проигрывает, выплата = 0
+        continue;
+      }
+
       if (playerHasBlackjack && !dealerHasBlackjack) {
         totalPayout += Math.floor(bet * 2.5);
       } else if (dealerHasBlackjack) {
@@ -464,6 +500,7 @@ export class BlackjackGame {
       }
     }
 
+    // Выплата по страховке (2:1 + возврат самой ставки страховки)
     if (gameOverState.insuranceBet && dealerHasBlackjack) {
       totalPayout += gameOverState.insuranceBet * 3;
     }
