@@ -6,7 +6,9 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\""
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "dev": "vite",
+    "build": "vite build"
   },
   "devDependencies": {
     "@types/node": "*",
