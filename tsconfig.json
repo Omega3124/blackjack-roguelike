@@ -14,15 +14,13 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "outDir": "./dist",
-    "rootDir": ".",
-    "ignoreDeprecations": "6.0",
+    "rootDir": "./src",
     "baseUrl": ".",
     "paths": {
       "@core/*": ["src/core/*"],
-      "@ai/*": ["src/ai/*"],
-      "@sim/*": ["src/simulation/*"]
+      "@ui/*": ["src/ui/*"]
     }
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts"],
+  "exclude": ["node_modules", "dist", "ui/node_modules"]
 }

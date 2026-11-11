@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { BlackjackGame } from './core/game';
-import { calculateHandScore } from './core/hand';
+import { BlackjackGame } from '../../src/core/game.js';
+import { calculateHandScore } from '../../src/core/hand';
 
 function App() {
   const [game, setGame] = useState<BlackjackGame | null>(null);

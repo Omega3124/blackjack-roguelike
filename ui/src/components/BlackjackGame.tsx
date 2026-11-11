@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BlackjackGame } from '../core/game.js';
+import { BlackjackGame } from '../../../src/core/game.js';
 
 export function BlackjackGameComponent() {
   const [game, setGame] = useState<BlackjackGame | null>(null);

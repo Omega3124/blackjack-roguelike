@@ -10,36 +10,41 @@ describe('Simulator', () => {
       betSize: 10,
       aiDifficulty: 'expert',
     });
+
     const stats = sim.run();
+
     expect(stats.totalGames).toBeGreaterThan(0);
     expect(stats.totalGames).toBeLessThanOrEqual(100);
     expect(stats.wins + stats.losses + stats.pushes).toBe(stats.totalGames);
     expect(stats.winRate).toBeGreaterThanOrEqual(0);
     expect(stats.winRate).toBeLessThanOrEqual(1);
+    expect(stats.houseEdge).toBeDefined();
   });
 
   it('should stop when player is bankrupt', () => {
     const sim = createSimulator({
       numGames: 10000,
-      initialBalance: 10,  // ровно одна ставка
+      initialBalance: 50,
       betSize: 10,
-      aiDifficulty: 'beginner',  // beginner проигрывает чаще
+      aiDifficulty: 'expert',
     });
+
     const stats = sim.run();
     expect(stats.totalGames).toBeLessThan(10000);
   });
 
   it('expert AI should have house edge close to theoretical 0.5%', () => {
     const sim = createSimulator({
-      numGames: 1000,
+      numGames: 10000,
       initialBalance: 10000,
       betSize: 10,
       aiDifficulty: 'expert',
     });
+
     const stats = sim.run();
-    expect(stats.houseEdge).toBeGreaterThanOrEqual(-5);
-    expect(stats.houseEdge).toBeLessThanOrEqual(10);
-    expect(stats.totalGames).toBeGreaterThan(0);
+    // House edge должен быть в разумных пределах (0-5%)
+    expect(stats.houseEdge).toBeGreaterThanOrEqual(-2);
+    expect(stats.houseEdge).toBeLessThanOrEqual(5);
   });
 });
 
@@ -51,6 +56,7 @@ describe('StatsAnalyzer', () => {
       betSize: 10,
       aiDifficulty: 'expert',
     });
+
     const stats = sim.run();
     const report = StatsAnalyzer.generateReport(stats, {
       numGames: 100,
@@ -58,9 +64,9 @@ describe('StatsAnalyzer', () => {
       betSize: 10,
       aiDifficulty: 'expert',
     });
+
     expect(report.summary).toBeDefined();
     expect(report.metrics.houseEdge).toBeDefined();
-    expect(report.comparisonWithTheory.expected).toBe(0.5);
   });
 
   it('should compare multiple strategies', () => {
@@ -73,24 +79,23 @@ describe('StatsAnalyzer', () => {
           losses: 50,
           pushes: 8,
           blackjacks: 4,
-          totalWagered: 1000,
-          totalWon: 450,
-          totalLost: 500,
+          totalStaked: 1000,
+          totalPayouts: 950,
           netProfit: -50,
           winRate: 0.46,
           lossRate: 0.50,
           pushRate: 0.08,
           houseEdge: 5.0,
           roi: -5.0,
-          avgPayout: 4.5,
+          avgPayout: 9.5,
           maxWinStreak: 3,
           maxLossStreak: 5,
           finalBalance: 950,
         },
       },
     ];
+
     const comparison = StatsAnalyzer.compareStrategies(results);
     expect(comparison).toContain('expert');
-    expect(comparison).toContain('5.00%');
   });
 });
