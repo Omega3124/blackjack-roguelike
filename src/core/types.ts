@@ -10,7 +10,6 @@ export type GameResult = 'playerWin' | 'dealerWin' | 'push' | 'blackjack';
 
 export type PlayerAction = 'hit' | 'stand' | 'double' | 'split' | 'insurance';
 
-// Состояние с несколькими руками (для split)
 export type PlayerTurnState = {
   state: 'playerTurn';
   playerHands: Card[][];
@@ -33,8 +32,8 @@ export type GameState =
       playerHands: Card[][];
       dealerHand: Card[];
       bets: number[];
-      splitAces?: boolean;
-      insuranceBet?: number;
+      splitAces: boolean;
+      insuranceBet: number;
     }
   | {
       state: 'gameOver';
@@ -42,6 +41,6 @@ export type GameState =
       playerHands: Card[][];
       dealerHand: Card[];
       bets: number[];
-      splitAces?: boolean;
-      insuranceBet?: number;
+      splitAces: boolean;
+      insuranceBet: number;
     };

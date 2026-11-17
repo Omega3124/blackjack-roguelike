@@ -1,12 +1,13 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@core': path.resolve(__dirname, '../../src/core')
+      '@core': path.resolve(__dirname, '../src/core'),
+      '@roguelike': path.resolve(__dirname, '../src/roguelike')
     }
   }
-})
+});

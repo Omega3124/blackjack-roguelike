@@ -41,7 +41,7 @@ export class BlackjackGame {
     const dealerHasBlackjack = isBlackjack(dealerHand);
     const dealerVisibleCard = dealerHand[0];
 
-    // Если у игрока blackjack и у дилера тоже - push
+    // Оба blackjack = push
     if (playerHasBlackjack && dealerHasBlackjack) {
       this.state = {
         state: 'gameOver',
@@ -55,7 +55,7 @@ export class BlackjackGame {
       return;
     }
 
-    // Если у игрока blackjack и у дилера НЕТ - игрок выигрывает
+    // У игрока blackjack, у дилера нет = игрок выигрывает
     if (playerHasBlackjack && !dealerHasBlackjack) {
       this.state = {
         state: 'gameOver',
@@ -69,7 +69,7 @@ export class BlackjackGame {
       return;
     }
 
-    // Если у дилера blackjack, но открытая карта НЕ туз - страховка невозможна, игра заканчивается
+    // У дилера blackjack, но открытая карта НЕ туз = страховка невозможна
     if (dealerHasBlackjack && dealerVisibleCard.rank !== 'A') {
       this.state = {
         state: 'gameOver',
@@ -83,7 +83,7 @@ export class BlackjackGame {
       return;
     }
 
-    // Иначе переходим к ходу игрока (где можно будет взять страховку, если у дилера туз)
+    // Обычный переход к ходу игрока
     this.state = {
       state: 'dealing',
       playerHand,
@@ -283,9 +283,9 @@ export class BlackjackGame {
 
     const hand1: Card[] = [currentHand[0]];
     const hand2: Card[] = [currentHand[1]];
-
     const newHands: Card[][] = [hand1, hand2];
     const newBets = [currentBet, currentBet];
+
     this.balance -= currentBet;
 
     if (isAces) {
@@ -325,7 +325,6 @@ export class BlackjackGame {
     if (!playerState.insuranceAvailable) {
       throw new Error('Страховка недоступна — у дилера не туз');
     }
-
     if (playerState.insuranceBet > 0) {
       throw new Error('Страховка уже взята');
     }
@@ -336,17 +335,14 @@ export class BlackjackGame {
     }
 
     const insuranceAmount = Math.floor(playerState.bets[0] / 2);
-
     if (this.balance < insuranceAmount) {
       throw new Error('Недостаточно средств для страховки');
     }
 
     this.balance -= insuranceAmount;
-
     const dealerHasBlackjack = isBlackjack(playerState.dealerHand);
 
     if (dealerHasBlackjack) {
-      // Страховка выигрывает: выплата 2:1
       this.state = {
         state: 'gameOver',
         result: 'dealerWin',
@@ -359,19 +355,18 @@ export class BlackjackGame {
       return;
     }
 
-    // У дилера нет blackjack - страховка проигрывает, игра продолжается
     this.state = {
       ...playerState,
       insuranceBet: insuranceAmount
     };
   }
 
-  /**
-   * Возвращает общую ставку игрока (сумма всех ставок + страховка)
-   * Используется симулятором для корректного расчёта house edge
-   */
   getTotalStake(): number {
-    if (this.state.state === 'playerTurn' || this.state.state === 'dealerTurn' || this.state.state === 'gameOver') {
+    if (
+      this.state.state === 'playerTurn' ||
+      this.state.state === 'dealerTurn' ||
+      this.state.state === 'gameOver'
+    ) {
       const state = this.state;
       const betsSum = state.bets.reduce((sum, bet) => sum + bet, 0);
       const insuranceBet = state.insuranceBet ?? 0;
@@ -424,7 +419,6 @@ export class BlackjackGame {
         hasBlackjack = true;
         playerWins++;
       } else if (dealerScore > 21) {
-        // Дилер bust, игрок не bust (проверено выше) - игрок выигрывает
         playerWins++;
       } else if (playerScore > dealerScore) {
         playerWins++;
@@ -453,7 +447,7 @@ export class BlackjackGame {
       dealerHand: dealerHand,
       bets: playerState.bets,
       splitAces: splitAces,
-      insuranceBet: playerState.insuranceBet
+      insuranceBet: playerState.insuranceBet ?? 0
     };
   }
 
@@ -474,16 +468,13 @@ export class BlackjackGame {
 
     let totalPayout = 0;
 
-    // Выплата по основным ставкам
     for (let i = 0; i < gameOverState.playerHands.length; i++) {
       const hand = gameOverState.playerHands[i];
       const bet = gameOverState.bets[i];
       const playerScore = calculateHandScore(hand).total;
       const playerHasBlackjack = isBlackjack(hand) && !splitAces;
 
-      // Проверяем bust ПЕРЕД выплатой
       if (playerScore > 21) {
-        // Bust: ставка проигрывает, выплата = 0
         continue;
       }
 
@@ -500,7 +491,6 @@ export class BlackjackGame {
       }
     }
 
-    // Выплата по страховке (2:1 + возврат самой ставки страховки)
     if (gameOverState.insuranceBet && dealerHasBlackjack) {
       totalPayout += gameOverState.insuranceBet * 3;
     }

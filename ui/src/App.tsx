@@ -1,39 +1,42 @@
 import { useState } from 'react';
-import { BlackjackGame } from '../../src/core/game.js';
-import { calculateHandScore } from '../../src/core/hand';
+import { BlackjackGame } from '@core/game';
+import { RunManager, createRunManager } from '@roguelike/run';
+import { getRandomPerks, type Perk } from '@roguelike/perks';
 
 function App() {
   const [game, setGame] = useState<BlackjackGame | null>(null);
-  const [balance, setBalance] = useState(1000);
-  const [bet, setBet] = useState(100);
-  const [message, setMessage] = useState('Введите ставку и нажмите "Начать игру"');
+  const [runManager] = useState(() => createRunManager());
+  const [message, setMessage] = useState('Начните новый забег!');
   const [, forceUpdate] = useState(0);
+  const [showPerkSelection, setShowPerkSelection] = useState(false);
+  const [availablePerks, setAvailablePerks] = useState<Perk[]>([]);
 
-  const [showResultModal, setShowResultModal] = useState(false);
-  const [lastResult, setLastResult] = useState<{
-    result: string;
-    payout: number;
-    balance: number;
-  } | null>(null);
+  const startNewRun = () => {
+    runManager.startNewRun();
+    setMessage('Забег начат! Выберите ставку HP.');
+    forceUpdate(n => n + 1);
+  };
 
-  const startGame = () => {
-    if (bet <= 0 || bet > balance) {
+  const startGame = (bet: number) => {
+    const hp = runManager.getHp();
+    const maxHp = runManager.getMaxHp();
+
+    if (bet <= 0 || bet > hp) {
       setMessage('Некорректная ставка');
       return;
     }
 
     const newGame = new BlackjackGame(`game-${Date.now()}`);
-    newGame.startGame(bet, balance);
+    newGame.startGame(bet, hp);
     newGame.deal();
 
     const state = newGame.getState();
     if (state.state === 'gameOver') {
       const payout = newGame.getPayout();
-      const newBalance = balance - bet + payout;
-      setBalance(newBalance);
-      setLastResult({ result: state.result, payout, balance: newBalance });
-      setShowResultModal(true);
-      setMessage(`Игра окончена: ${state.result}. Выплата: $${payout}`);
+      const totalStake = newGame.getTotalStake();
+      const hpChange = payout - totalStake;
+      runManager.updateHp(hpChange);
+      setMessage(`Игра окончена: ${state.result}. HP: ${runManager.getHp()}/${runManager.getMaxHp()}`);
       setGame(null);
       return;
     }
@@ -44,89 +47,79 @@ function App() {
     forceUpdate(n => n + 1);
   };
 
-  const processAction = (actionFn: () => void) => {
+  const handleAction = (action: 'hit' | 'stand' | 'double' | 'split' | 'insurance') => {
     if (!game) return;
 
     try {
-      actionFn();
+      switch (action) {
+        case 'hit':
+          game.hit();
+          break;
+        case 'stand':
+          game.stand();
+          break;
+        case 'double':
+          game.double();
+          break;
+        case 'split':
+          game.split();
+          break;
+        case 'insurance':
+          game.insurance();
+          break;
+      }
+
       const state = game.getState();
-      
       if (state.state === 'gameOver') {
         const payout = game.getPayout();
-        const newBalance = balance - bet + payout;
-        setBalance(newBalance);
-        setLastResult({ result: state.result, payout, balance: newBalance });
-        setShowResultModal(true);
-        setMessage(`Игра окончена: ${state.result}. Выплата: $${payout}`);
+        const totalStake = game.getTotalStake();
+        const hpChange = payout - totalStake;
+        runManager.updateHp(hpChange);
+        setMessage(`Игра окончена: ${state.result}. HP: ${runManager.getHp()}/${runManager.getMaxHp()}`);
         setGame(null);
-      } else if (state.state === 'dealerTurn') {
-        setMessage('Дилер берёт карты...');
-        forceUpdate(n => n + 1);
+
+        // Проверка на переход на следующий этаж
+        if (runManager.isRunActive() && runManager.getHp() > 0) {
+          runManager.advanceFloor();
+          if (runManager.getCurrentFloor() > runManager.getState().maxFloors) {
+            setMessage('Забег завершён! Поздравляем!');
+          } else {
+            setMessage(`Этаж ${runManager.getCurrentFloor()}! Выберите перк.`);
+            setAvailablePerks(getRandomPerks(3));
+            setShowPerkSelection(true);
+          }
+        }
       } else {
         setMessage('Ваш ход!');
         forceUpdate(n => n + 1);
       }
     } catch (e) {
       setMessage(`Ошибка: ${(e as Error).message}`);
-      forceUpdate(n => n + 1);
     }
   };
 
-  const handleHit = () => processAction(() => game!.hit());
-  const handleStand = () => processAction(() => game!.stand());
-  const handleDouble = () => processAction(() => game!.double());
-  const handleSplit = () => processAction(() => game!.split());
-  const handleInsurance = () => processAction(() => game!.insurance());
+  const selectPerk = (perk: Perk) => {
+    runManager.addPerk(perk.id);
+    setShowPerkSelection(false);
+    setMessage(`Перк "${perk.name}" добавлен! Начните следующую игру.`);
+    forceUpdate(n => n + 1);
+  };
 
   const state = game?.getState();
+  const runState = runManager.getState();
 
-  const getPlayerScore = (): number => {
-    if (!state || state.state !== 'playerTurn') return 0;
-    const hand = state.playerHands[state.currentHandIndex];
-    return calculateHandScore(hand).total;
-  };
-
-  const getDealerScore = (): number => {
-    if (!state) return 0;
-    if (state.state === 'playerTurn') {
-      return calculateHandScore(state.dealerHand).total;
-    }
-    if (state.state === 'gameOver' || state.state === 'dealerTurn') {
-      return calculateHandScore(state.dealerHand).total;
-    }
-    return 0;
-  };
-
-  const renderCard = (card: { rank: string; suit: string }, key: number, hidden = false) => {
-    if (hidden) {
-      return (
-        <div key={key} style={{ 
-          border: '2px solid #000', 
-          padding: '15px 20px', 
-          borderRadius: '8px', 
-          background: '#1a1a2e',
-          fontSize: '32px',
-          color: '#e94560',
-          minWidth: '60px',
-          textAlign: 'center',
-          boxShadow: '2px 2px 5px rgba(0,0,0,0.3)'
-        }}>
-          ?
-        </div>
-      );
-    }
-
-    const suitSymbol = 
-      card.suit === 'hearts' ? '♥' : 
-      card.suit === 'diamonds' ? '♦' : 
+  const renderCard = (card: { rank: string; suit: string }, key: number) => {
+    const suitSymbol =
+      card.suit === 'hearts' ? '♥' :
+      card.suit === 'diamonds' ? '♦' :
       card.suit === 'clubs' ? '♣' : '♠';
     const color = (card.suit === 'hearts' || card.suit === 'diamonds') ? '#e74c3c' : '#2c3e50';
-    
+
     return (
-      <div key={key} style={{ 
-        border: '2px solid #000', 
-        padding: '15px 20px', 
-        borderRadius: '8px', 
+      <div key={key} style={{
+        border: '2px solid #000',
+        padding: '15px 20px',
+        borderRadius: '8px',
         background: 'white',
         fontSize: '32px',
         color: color,
@@ -139,72 +132,52 @@ function App() {
     );
   };
 
-  const getResultColor = (result: string): string => {
-    switch (result) {
-      case 'blackjack': return '#2ecc71';
-      case 'playerWin': return '#3498db';
-      case 'push': return '#f39c12';
-      case 'dealerWin': return '#e74c3c';
-      default: return '#95a5a6';
-    }
-  };
-
-  const getResultText = (result: string): string => {
-    switch (result) {
-      case 'blackjack': return '🎉 BLACKJACK!';
-      case 'playerWin': return '✅ Вы выиграли!';
-      case 'push': return '🤝 Ничья (Push)';
-      case 'dealerWin': return '❌ Дилер выиграл';
-      default: return 'Игра окончена';
-    }
-  };
-
   return (
-    <div style={{ 
-      padding: '20px', 
-      fontFamily: 'Arial', 
-      maxWidth: '800px', 
+    <div style={{
+      padding: '20px',
+      fontFamily: 'Arial',
+      maxWidth: '800px',
       margin: '0 auto',
       background: '#1a1a2e',
       minHeight: '100vh',
       color: 'white'
     }}>
       <h1 style={{ textAlign: 'center', fontSize: '48px', margin: '20px 0' }}>
-        🃏 Blackjack
+        🃏 Blackjack Roguelike
       </h1>
-      
-      <div style={{ 
-        marginBottom: '20px', 
-        padding: '15px', 
-        background: '#16213e', 
+
+      {/* Статус забега */}
+      <div style={{
+        marginBottom: '20px',
+        padding: '15px',
+        background: '#16213e',
         borderRadius: '10px',
-        textAlign: 'center',
-        fontSize: '24px'
+        textAlign: 'center'
       }}>
-         Баланс: <strong>${balance}</strong>
+        <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+          ❤️ HP: <strong>{runState.hp}/{runState.maxHp}</strong>
+        </div>
+        <div style={{ fontSize: '18px', color: '#a0a0a0' }}>
+          Этаж: {runState.currentFloor}/{runState.maxFloors} |
+          Игр: {runState.gamesPlayed} |
+          Побед: {runState.gamesWon}
+        </div>
+        {runState.perks.length > 0 && (
+          <div style={{ fontSize: '16px', marginTop: '10px', color: '#f39c12' }}>
+            Перки: {runState.perks.join(', ')}
+          </div>
+        )}
       </div>
 
-      {!game ? (
+      {!runManager.isRunActive() ? (
         <div style={{ textAlign: 'center' }}>
-          <input
-            type="number"
-            value={bet}
-            onChange={(e) => setBet(Number(e.target.value))}
-            min="1"
-            max={balance}
-            style={{ 
-              marginRight: '10px', 
-              padding: '15px', 
-              fontSize: '20px',
-              borderRadius: '5px',
-              border: 'none',
-              width: '150px'
-            }}
-          />
-          <button 
-            onClick={startGame} 
-            style={{ 
-              padding: '15px 30px', 
+          <div style={{ fontSize: '32px', marginBottom: '20px' }}>
+            {runState.status === 'completed' ? '🎉 Забег завершён!' : '💀 Забег провален'}
+          </div>
+          <button
+            onClick={startNewRun}
+            style={{
+              padding: '15px 30px',
               fontSize: '20px',
               background: '#4CAF50',
               color: 'white',
@@ -213,80 +186,45 @@ function App() {
               cursor: 'pointer'
             }}
           >
-            Начать игру
+            Новый забег
           </button>
+        </div>
+      ) : !game ? (
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ marginBottom: '20px' }}>
+            <button onClick={() => startGame(5)} style={buttonStyle}>Ставка 5 HP</button>
+            <button onClick={() => startGame(10)} style={buttonStyle}>Ставка 10 HP</button>
+            <button onClick={() => startGame(20)} style={buttonStyle}>Ставка 20 HP</button>
+          </div>
         </div>
       ) : (
         <div>
           {/* Карты дилера */}
           <div style={{ marginBottom: '30px', textAlign: 'center' }}>
-            <h2 style={{ color: '#a0a0a0' }}>Дилер {state?.state === 'playerTurn' ? '(скрытая карта)' : ''}:</h2>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', fontSize: '32px' }}>
-              {state?.state === 'playerTurn' ? (
-                <>
-                  {renderCard(state.dealerVisibleCard, 0)}
-                  {renderCard({ rank: '?', suit: 'spades' } as any, 1, true)}
-                </>
-              ) : (
-                state?.state === 'dealerTurn' || state?.state === 'gameOver'
-                  ? state.dealerHand.map((card, idx) => renderCard(card, idx))
-                  : null
-              )}
+            <h2 style={{ color: '#a0a0a0' }}>Дилер:</h2>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              {state?.state === 'playerTurn' && renderCard(state.dealerVisibleCard, 0)}
+              {(state?.state === 'dealerTurn' || state?.state === 'gameOver') &&
+                state.dealerHand.map((card, idx) => renderCard(card, idx))}
             </div>
-            {/* Очки дилера */}
-            {(state?.state === 'dealerTurn' || state?.state === 'gameOver') && (
-              <div style={{ 
-                marginTop: '10px', 
-                fontSize: '20px', 
-                color: '#e94560',
-                fontWeight: 'bold'
-              }}>
-                Очки дилера: {getDealerScore()}
-              </div>
-            )}
           </div>
 
           {/* Карты игрока */}
-          <div style={{ marginBottom: '10px', textAlign: 'center' }}>
+          <div style={{ marginBottom: '30px', textAlign: 'center' }}>
             <h2 style={{ color: '#a0a0a0' }}>Ваши карты:</h2>
-            {state?.state === 'playerTurn' && (
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                {state.playerHands[state.currentHandIndex].map((card, idx) => 
-                  renderCard(card, idx)
-                )}
-              </div>
-            )}
-            {state?.state === 'gameOver' && (
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                {state.playerHands.flat().map((card, idx) => 
-                  renderCard(card, idx)
-                )}
-              </div>
-            )}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              {state?.state === 'playerTurn' &&
+                state.playerHands[state.currentHandIndex].map((card, idx) => renderCard(card, idx))}
+              {state?.state === 'gameOver' &&
+                state.playerHands.flat().map((card, idx) => renderCard(card, idx))}
+            </div>
           </div>
 
-          {/* Очки игрока */}
-          {state?.state === 'playerTurn' && (
-            <div style={{ 
-              textAlign: 'center', 
-              marginBottom: '20px',
-              padding: '10px',
-              background: '#0f3460',
-              borderRadius: '10px',
-              fontSize: '24px',
-              fontWeight: 'bold'
-            }}>
-              Ваши очки: <span style={{ color: '#e94560' }}>{getPlayerScore()}</span>
-              {getPlayerScore() > 21 && <span style={{ color: '#e74c3c', marginLeft: '10px' }}>— ПЕРЕБОР!</span>}
-              {getPlayerScore() === 21 && <span style={{ color: '#2ecc71', marginLeft: '10px' }}>— 21!</span>}
-            </div>
-          )}
-
           {/* Сообщение */}
-          <div style={{ 
-            marginBottom: '20px', 
-            padding: '15px', 
-            background: '#fff3cd', 
+          <div style={{
+            marginBottom: '20px',
+            padding: '15px',
+            background: '#fff3cd',
             borderRadius: '10px',
             textAlign: 'center',
             color: '#856404',
@@ -300,19 +238,19 @@ function App() {
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
             {state?.state === 'playerTurn' && (
               <>
-                <button onClick={handleHit} style={buttonStyle}>Hit</button>
-                <button onClick={handleStand} style={buttonStyle}>Stand</button>
+                <button onClick={() => handleAction('hit')} style={buttonStyle}>Hit</button>
+                <button onClick={() => handleAction('stand')} style={buttonStyle}>Stand</button>
                 {state.playerHands[state.currentHandIndex].length === 2 && (
                   <>
-                    <button onClick={handleDouble} style={buttonStyle}>Double</button>
-                    {state.playerHands[state.currentHandIndex][0].rank === 
+                    <button onClick={() => handleAction('double')} style={buttonStyle}>Double</button>
+                    {state.playerHands[state.currentHandIndex][0].rank ===
                      state.playerHands[state.currentHandIndex][1].rank && (
-                      <button onClick={handleSplit} style={buttonStyle}>Split</button>
+                      <button onClick={() => handleAction('split')} style={buttonStyle}>Split</button>
                     )}
                   </>
                 )}
                 {state.insuranceAvailable && state.insuranceBet === 0 && (
-                  <button onClick={handleInsurance} style={buttonStyle}>Insurance</button>
+                  <button onClick={() => handleAction('insurance')} style={buttonStyle}>Insurance</button>
                 )}
               </>
             )}
@@ -320,8 +258,8 @@ function App() {
         </div>
       )}
 
-      {/* Модальное окно результата */}
-      {showResultModal && lastResult && (
+      {/* Выбор перка */}
+      {showPerkSelection && (
         <div style={{
           position: 'fixed',
           top: 0,
@@ -339,39 +277,29 @@ function App() {
             padding: '40px',
             borderRadius: '20px',
             textAlign: 'center',
-            maxWidth: '400px',
-            border: `3px solid ${getResultColor(lastResult.result)}`
+            maxWidth: '600px'
           }}>
-            <div style={{ 
-              fontSize: '48px', 
-              marginBottom: '20px',
-              color: getResultColor(lastResult.result)
-            }}>
-              {getResultText(lastResult.result)}
+            <h2 style={{ marginBottom: '20px' }}>Выберите карту таро:</h2>
+            <div style={{ display: 'flex', gap: '20px', justifyContent: 'center' }}>
+              {availablePerks.map(perk => (
+                <div
+                  key={perk.id}
+                  onClick={() => selectPerk(perk)}
+                  style={{
+                    padding: '20px',
+                    background: '#0f3460',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    border: '2px solid #e94560',
+                    minWidth: '150px'
+                  }}
+                >
+                  <div style={{ fontSize: '48px', marginBottom: '10px' }}>{perk.icon}</div>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '10px' }}>{perk.name}</div>
+                  <div style={{ fontSize: '14px', color: '#a0a0a0' }}>{perk.description}</div>
+                </div>
+              ))}
             </div>
-            
-            <div style={{ fontSize: '24px', marginBottom: '10px' }}>
-              Выплата: <strong style={{ color: '#2ecc71' }}>${lastResult.payout}</strong>
-            </div>
-            
-            <div style={{ fontSize: '20px', marginBottom: '30px', color: '#a0a0a0' }}>
-              Новый баланс: <strong>${lastResult.balance}</strong>
-            </div>
-            
-            <button 
-              onClick={() => setShowResultModal(false)}
-              style={{
-                padding: '15px 40px',
-                fontSize: '20px',
-                background: '#e94560',
-                color: 'white',
-                border: 'none',
-                borderRadius: '10px',
-                cursor: 'pointer'
-              }}
-            >
-              OK
-            </button>
           </div>
         </div>
       )}
