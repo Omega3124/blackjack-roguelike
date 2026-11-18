@@ -1,16 +1,48 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BlackjackGame } from '@core/game';
 import { RunManager, createRunManager } from '@roguelike/run';
 import { getRandomPerks, type Perk } from '@roguelike/perks';
+import { Login } from './components/Login';
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return !!localStorage.getItem('token');
+  });
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
+  const [userId, setUserId] = useState<number | null>(() => {
+    const saved = localStorage.getItem('userId');
+    return saved ? Number(saved) : null;
+  });
+  const [username, setUsername] = useState<string | null>(() => localStorage.getItem('username'));
+
+  const handleLogin = (newToken: string, newUserId: number, newUsername: string) => {
+    localStorage.setItem('token', newToken);
+    localStorage.setItem('userId', String(newUserId));
+    localStorage.setItem('username', newUsername);
+    window.location.reload();
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('username');
+    window.location.reload();
+  };
+
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  // Состояние игры
   const [game, setGame] = useState<BlackjackGame | null>(null);
   const [runManager] = useState(() => createRunManager());
-  const [message, setMessage] = useState('Начните новый забег!');
+  const [message, setMessage] = useState('Забег начат! Выберите ставку HP.');
   const [, forceUpdate] = useState(0);
   const [showPerkSelection, setShowPerkSelection] = useState(false);
   const [availablePerks, setAvailablePerks] = useState<Perk[]>([]);
+  const [currentBet, setCurrentBet] = useState<number>(10);
 
+  // Функции рана
   const startNewRun = () => {
     runManager.startNewRun();
     setMessage('Забег начат! Выберите ставку HP.');
@@ -26,6 +58,8 @@ function App() {
       return;
     }
 
+    setCurrentBet(bet);
+
     const newGame = new BlackjackGame(`game-${Date.now()}`);
     newGame.startGame(bet, hp);
     newGame.deal();
@@ -38,6 +72,7 @@ function App() {
       runManager.updateHp(hpChange);
       setMessage(`Игра окончена: ${state.result}. HP: ${runManager.getHp()}/${runManager.getMaxHp()}`);
       setGame(null);
+      saveGameSession(state.result, hp, runManager.getHp(), bet, 1);
       return;
     }
 
@@ -47,26 +82,46 @@ function App() {
     forceUpdate(n => n + 1);
   };
 
-  const handleAction = (action: 'hit' | 'stand' | 'double' | 'split' | 'insurance') => {
+  // Сохранение на серв
+  const saveGameSession = async (
+    result: string,
+    hpBefore: number,
+    hpAfter: number,
+    bet: number,
+    floor: number
+  ) => {
+    try {
+      await fetch('http://localhost:3001/api/sessions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          bet,
+          hpBefore,
+          hpAfter,
+          result,
+          floor,
+          runId: null
+        })
+      });
+    } catch (err) {
+      console.error('Не удалось сохранить игру:', err);
+    }
+  };
+
+  // Действия юзера
+  const handleAction = async (action: 'hit' | 'stand' | 'double' | 'split' | 'insurance') => {
     if (!game) return;
 
     try {
       switch (action) {
-        case 'hit':
-          game.hit();
-          break;
-        case 'stand':
-          game.stand();
-          break;
-        case 'double':
-          game.double();
-          break;
-        case 'split':
-          game.split();
-          break;
-        case 'insurance':
-          game.insurance();
-          break;
+        case 'hit': game.hit(); break;
+        case 'stand': game.stand(); break;
+        case 'double': game.double(); break;
+        case 'split': game.split(); break;
+        case 'insurance': game.insurance(); break;
       }
 
       const state = game.getState();
@@ -74,12 +129,23 @@ function App() {
         const payout = game.getPayout();
         const totalStake = game.getTotalStake();
         const hpChange = payout - totalStake;
+        const hpBefore = runManager.getHp();
+
         runManager.updateHp(hpChange);
-        setMessage(`Игра окончена: ${state.result}. HP: ${runManager.getHp()}/${runManager.getMaxHp()}`);
+        const hpAfter = runManager.getHp();
+
+        setMessage(`Игра окончена: ${state.result}. HP: ${hpAfter}/${runManager.getMaxHp()}`);
         setGame(null);
 
-        // Проверка на переход на следующий этаж
-        if (runManager.isRunActive() && runManager.getHp() > 0) {
+        await saveGameSession(
+          state.result,
+          hpBefore,
+          hpAfter,
+          currentBet,
+          runManager.getCurrentFloor()
+        );
+
+        if (runManager.isRunActive() && hpAfter > 0) {
           runManager.advanceFloor();
           if (runManager.getCurrentFloor() > runManager.getState().maxFloors) {
             setMessage('Забег завершён! Поздравляем!');
@@ -98,6 +164,7 @@ function App() {
     }
   };
 
+  // Выбор перка
   const selectPerk = (perk: Perk) => {
     runManager.addPerk(perk.id);
     setShowPerkSelection(false);
@@ -105,6 +172,7 @@ function App() {
     forceUpdate(n => n + 1);
   };
 
+  // Рендер
   const state = game?.getState();
   const runState = runManager.getState();
 
@@ -140,8 +208,27 @@ function App() {
       margin: '0 auto',
       background: '#1a1a2e',
       minHeight: '100vh',
-      color: 'white'
+      color: 'white',
+      position: 'relative'
     }}>
+      {/* Кнопка выхода */}
+      <button
+        onClick={handleLogout}
+        style={{
+          position: 'absolute',
+          top: '20px',
+          right: '20px',
+          padding: '10px 20px',
+          background: '#e74c3c',
+          color: 'white',
+          border: 'none',
+          borderRadius: '5px',
+          cursor: 'pointer'
+        }}
+      >
+        Выйти ({username})
+      </button>
+
       <h1 style={{ textAlign: 'center', fontSize: '48px', margin: '20px 0' }}>
         🃏 Blackjack Roguelike
       </h1>
@@ -199,7 +286,6 @@ function App() {
         </div>
       ) : (
         <div>
-          {/* Карты дилера */}
           <div style={{ marginBottom: '30px', textAlign: 'center' }}>
             <h2 style={{ color: '#a0a0a0' }}>Дилер:</h2>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
@@ -209,7 +295,6 @@ function App() {
             </div>
           </div>
 
-          {/* Карты игрока */}
           <div style={{ marginBottom: '30px', textAlign: 'center' }}>
             <h2 style={{ color: '#a0a0a0' }}>Ваши карты:</h2>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
@@ -220,7 +305,6 @@ function App() {
             </div>
           </div>
 
-          {/* Сообщение */}
           <div style={{
             marginBottom: '20px',
             padding: '15px',
@@ -234,7 +318,6 @@ function App() {
             {message}
           </div>
 
-          {/* Кнопки действий */}
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
             {state?.state === 'playerTurn' && (
               <>
@@ -258,7 +341,6 @@ function App() {
         </div>
       )}
 
-      {/* Выбор перка */}
       {showPerkSelection && (
         <div style={{
           position: 'fixed',
