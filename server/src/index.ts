@@ -183,3 +183,43 @@ app.get('/api/runs/active', authMiddleware, (req: any, res) => {
 app.listen(PORT, () => {
   console.log(`Сервер запущен на http://localhost:${PORT}`);
 });
+
+// Получение настроек пользователя
+app.get('/api/settings', authMiddleware, (req: any, res) => {
+  try {
+    const user: any = db.prepare(
+      'SELECT show_logout_warning FROM users WHERE id = ?'
+    ).get(req.user.userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    res.json({
+      showLogoutWarning: user.show_logout_warning === 1
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Обновление настроек пользователя
+app.put('/api/settings', authMiddleware, (req: any, res) => {
+  try {
+    const { showLogoutWarning } = req.body;
+
+    if (typeof showLogoutWarning !== 'boolean') {
+      return res.status(400).json({ error: 'showLogoutWarning должен быть boolean' });
+    }
+
+    db.prepare(
+      'UPDATE users SET show_logout_warning = ? WHERE id = ?'
+    ).run(showLogoutWarning ? 1 : 0, req.user.userId);
+
+    res.json({ success: true, showLogoutWarning });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});

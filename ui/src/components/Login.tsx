@@ -33,7 +33,6 @@ export function Login({ onLogin }: LoginProps) {
       localStorage.setItem('token', data.token);
       localStorage.setItem('userId', String(data.userId));
       localStorage.setItem('username', data.username);
-
       onLogin(data.token, data.userId, data.username);
     } catch (err) {
       setError((err as Error).message);
@@ -44,88 +43,134 @@ export function Login({ onLogin }: LoginProps) {
 
   return (
     <div style={{
-      padding: '20px',
-      fontFamily: 'Arial',
-      maxWidth: '400px',
-      margin: '100px auto',
-      background: '#16213e',
-      borderRadius: '10px',
-      color: 'white'
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      minHeight: '100vh',
+      background: '#1a1a2e',
+      fontFamily: 'Arial'
     }}>
-      <h2 style={{ textAlign: 'center' }}>
-        {isRegister ? 'Регистрация' : 'Вход'}
-      </h2>
-      
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: '15px' }}>
-          <label>Username:</label>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
+      <div style={{
+        width: '400px',
+        padding: '40px',
+        background: '#16213e',
+        borderRadius: '15px',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.5)'
+      }}>
+        <h2 style={{
+          textAlign: 'center',
+          color: 'white',
+          marginBottom: '30px',
+          fontSize: '28px'
+        }}>
+          {isRegister ? 'Регистрация' : 'Вход'}
+        </h2>
+
+        <form onSubmit={handleSubmit}>
+          {/* Username поле */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              color: '#a0a0a0',
+              marginBottom: '8px',
+              fontSize: '14px'
+            }}>
+              Username:
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '2px solid #0f3460',
+                background: '#0f3460',
+                color: 'white',
+                fontSize: '16px',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          {/* Password поле */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              color: '#a0a0a0',
+              marginBottom: '8px',
+              fontSize: '14px'
+            }}>
+              Пароль:
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '2px solid #0f3460',
+                background: '#0f3460',
+                color: 'white',
+                fontSize: '16px',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          {error && (
+            <div style={{
+              color: '#e74c3c',
+              marginBottom: '20px',
+              padding: '10px',
+              background: 'rgba(231, 76, 60, 0.1)',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
             style={{
               width: '100%',
-              padding: '10px',
-              marginTop: '5px',
-              borderRadius: '5px',
-              border: 'none'
+              padding: '14px',
+              background: loading ? '#95a5a6' : '#4CAF50',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontSize: '16px',
+              fontWeight: 'bold',
+              transition: 'background 0.3s'
             }}
-          />
-        </div>
-        
-        <div style={{ marginBottom: '15px' }}>
-          <label>Пароль:</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
+          >
+            {loading ? 'Загрузка...' : (isRegister ? 'Зарегистрироваться' : 'Войти')}
+          </button>
+        </form>
+
+        <div style={{ textAlign: 'center', marginTop: '20px' }}>
+          <button
+            onClick={() => setIsRegister(!isRegister)}
             style={{
-              width: '100%',
-              padding: '10px',
-              marginTop: '5px',
-              borderRadius: '5px',
-              border: 'none'
+              background: 'none',
+              border: 'none',
+              color: '#3498db',
+              cursor: 'pointer',
+              fontSize: '14px',
+              textDecoration: 'underline'
             }}
-          />
+          >
+            {isRegister ? 'Есть аккаунт? Войти' : 'Нет аккаунта? Зарегистрироваться'}
+          </button>
         </div>
-        
-        {error && (
-          <div style={{ color: '#e74c3c', marginBottom: '15px' }}>{error}</div>
-        )}
-        
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            width: '100%',
-            padding: '12px',
-            background: loading ? '#95a5a6' : '#4CAF50',
-            color: 'white',
-            border: 'none',
-            borderRadius: '5px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontSize: '16px'
-          }}
-        >
-          {loading ? 'Загрузка...' : (isRegister ? 'Зарегистрироваться' : 'Войти')}
-        </button>
-      </form>
-      
-      <div style={{ textAlign: 'center', marginTop: '15px' }}>
-        <button
-          onClick={() => setIsRegister(!isRegister)}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#3498db',
-            cursor: 'pointer',
-            textDecoration: 'underline'
-          }}
-        >
-          {isRegister ? 'Есть аккаунт? Войти' : 'Нет аккаунта? Зарегистрироваться'}
-        </button>
       </div>
     </div>
   );

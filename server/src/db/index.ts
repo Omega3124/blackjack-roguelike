@@ -15,7 +15,8 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    show_logout_warning INTEGER NOT NULL DEFAULT 1
   );
   
   CREATE TABLE IF NOT EXISTS game_sessions (
@@ -46,5 +47,11 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
+
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN show_logout_warning INTEGER NOT NULL DEFAULT 1`);
+} catch {
+  // Колонка уже существует — игнорируем ошибку
+}
 
 export { db };
