@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { BlackjackGame } from '../../src/core/game';
 import { RunManager, createRunManager } from '../../src/roguelike/run';
 import { getRandomPerks, type Perk } from '../../src/roguelike/perks';
 import { calculateHandScore } from '../../src/core/hand';
 import { GameTable } from './components/GameTable';
 import { TarotCard } from './components/TarotCard';
+import { Login } from './components/Login';
 
 type Screen = 'main' | 'playing' | 'results';
 
@@ -14,14 +15,44 @@ interface GameResult {
   totalStake: number;
   playerScore: number;
   dealerScore: number;
+  playerBust?: boolean;
+  dealerBust?: boolean;
 }
 
+// ============================================================
+// AUTH GATE
+// ============================================================
 function App() {
-  // ========== СОСТОЯНИЯ ЭКРАНОВ ==========
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
+
+  const handleLogin = (newToken: string, newUserId: number, newUsername: string) => {
+    localStorage.setItem('token', newToken);
+    localStorage.setItem('userId', String(newUserId));
+    localStorage.setItem('username', newUsername);
+    setToken(newToken);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('username');
+    setToken(null);
+  };
+
+  if (!token) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  return <Game key={token} onLogout={handleLogout} />;
+}
+
+// ============================================================
+// GAME
+// ============================================================
+function Game({ onLogout }: { onLogout: () => void }) {
   const [screen, setScreen] = useState<Screen>('main');
   const [lastResult, setLastResult] = useState<GameResult | null>(null);
 
-  // ========== ИГРОВАЯ ЛОГИКА ==========
   const [game, setGame] = useState<BlackjackGame | null>(null);
   const [runManager] = useState(() => createRunManager());
   const [message, setMessage] = useState('Начните новый забег!');
@@ -31,14 +62,12 @@ function App() {
   const [currentBet, setCurrentBet] = useState<number>(10);
   const [isDealerPlaying, setIsDealerPlaying] = useState(false);
 
-  // ========== НАСТРОЙКИ ВЫХОДА ==========
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [logoutChoice, setLogoutChoice] = useState<boolean>(true);
   const [username] = useState<string | null>(() => localStorage.getItem('username'));
-
   const [showLogoutWarning, setShowLogoutWarning] = useState<boolean>(() => {
     const saved = localStorage.getItem('showLogoutWarning');
-    return saved !== 'false'; // по умолчанию true
+    return saved !== 'false';
   });
 
   const saveLogoutSetting = (value: boolean) => {
@@ -46,24 +75,14 @@ function App() {
     localStorage.setItem('showLogoutWarning', String(value));
   };
 
-  const handleLogout = () => {
+  const handleLogoutClick = () => {
     const currentFloor = runManager.getCurrentFloor();
-
-    // Если этаж <= 1 ИЛИ пользователь отключил предупреждение — выходим сразу
     if (currentFloor <= 1 || !showLogoutWarning) {
-      performLogout();
+      onLogout();
       return;
     }
-
     setShowLogoutConfirm(true);
     setLogoutChoice(true);
-  };
-
-  const performLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('username');
-    window.location.reload();
   };
 
   const confirmLogout = () => {
@@ -71,7 +90,7 @@ function App() {
       saveLogoutSetting(false);
     }
     setShowLogoutConfirm(false);
-    performLogout();
+    onLogout();
   };
 
   const cancelLogout = () => {
@@ -87,18 +106,17 @@ function App() {
 
   const startGame = (bet: number) => {
     const hp = runManager.getHp();
-    const maxHp = runManager.getMaxHp();
     if (bet <= 0 || bet > hp) {
       setMessage('Некорректная ставка');
       return;
     }
     setCurrentBet(bet);
     const newGame = new BlackjackGame(`game-${Date.now()}`);
-    newGame.startGame(bet, hp);
+    // ✅ Передаём перки в игру
+    newGame.startGame(bet, hp, runManager.getPerks());
     newGame.deal();
     const state = newGame.getState();
 
-    // Если сразу blackjack — показываем результаты
     if (state.state === 'gameOver') {
       showGameResults(newGame, state);
       return;
@@ -112,9 +130,21 @@ function App() {
   };
 
   // ========== ДЕЙСТВИЯ ИГРОКА ==========
-  const handleAction = (action: 'hit' | 'stand' | 'double' | 'split' | 'insurance') => {
+  const handleAction = (action: 'hit' | 'stand' | 'double' | 'split' | 'insurance' | 'reroll') => {
     if (!game) return;
     try {
+      if (action === 'reroll') {
+        const success = game.reroll();
+        if (success) {
+          runManager.usePerk('death');
+          setMessage('💀 Карты пересданы! (Перк "Смерть" использован)');
+          forceUpdate(n => n + 1);
+        } else {
+          setMessage('Ошибка: невозможно пересдать карты');
+        }
+        return;
+      }
+
       switch (action) {
         case 'hit': game.hit(); break;
         case 'stand': game.stand(); break;
@@ -128,11 +158,9 @@ function App() {
       if (state.state === 'gameOver') {
         showGameResults(game, state);
       } else if (state.state === 'dealerTurn') {
-        // ✅ Анимация хода дилера
         setIsDealerPlaying(true);
         setMessage('Ход дилера...');
         forceUpdate(n => n + 1);
-
         setTimeout(() => {
           dealerPlayStep(game);
         }, 800);
@@ -145,20 +173,15 @@ function App() {
     }
   };
 
-  // ✅ Пошаговый ход дилера с задержкой
   const dealerPlayStep = (currentGame: BlackjackGame) => {
     const state = currentGame.getState();
-
     if (state.state === 'gameOver') {
       showGameResults(currentGame, state);
       return;
     }
-
     if (state.state === 'dealerTurn') {
-      currentGame.stand(); // дилер берёт карту
-
+      currentGame.stand();
       const newState = currentGame.getState();
-
       if (newState.state === 'gameOver') {
         setTimeout(() => {
           showGameResults(currentGame, newState);
@@ -171,33 +194,52 @@ function App() {
     }
   };
 
-  // ✅ Показ экрана результатов (НЕ переходим на главный экран!)
   const showGameResults = (currentGame: BlackjackGame, state: any) => {
     const payout = currentGame.getPayout();
     const totalStake = currentGame.getTotalStake();
-    const hpChange = payout - totalStake;
-    const hpBefore = runManager.getHp();
-    runManager.updateHp(hpChange);
-    const hpAfter = runManager.getHp();
+    let hpChange = payout - totalStake;
 
-    const playerScore = calculateHandScore(state.playerHands[0]).total;
+    // ✅ Считаем очки по всем рукам (фикс BUST при сплите)
+    const playerScores = state.playerHands.map((h: any[]) => calculateHandScore(h).total);
     const dealerScore = calculateHandScore(state.dealerHand).total;
+    const allBust = playerScores.every((s: number) => s > 21);
+    const dealerBust = dealerScore > 21;
+
+    // ☀️ SUN: если проиграл и перк активен — HP не теряется
+    if (
+      hpChange < 0 &&
+      currentGame.hasPerk('the_sun') &&
+      !runManager.isPerkUsed('the_sun')
+    ) {
+      runManager.usePerk('the_sun');
+      hpChange = 0;
+      setMessage('☀️ Солнце спасло вас! HP не потеряно.');
+    }
+
+    // ⚖️ JUSTICE: при ничьей +2 HP к макс. HP
+    if (state.result === 'push' && currentGame.hasPerk('justice')) {
+      runManager.increaseMaxHp(2);
+      hpChange += 2;
+    }
+
+    runManager.updateHp(hpChange);
 
     setLastResult({
       result: state.result,
       payout,
       totalStake,
-      playerScore,
+      playerScore: playerScores[0],
       dealerScore,
+      playerBust: allBust,
+      dealerBust,
     });
 
     setIsDealerPlaying(false);
     setGame(null);
-    setScreen('results'); // ✅ Показываем экран результатов
+    setScreen('results');
     forceUpdate(n => n + 1);
   };
 
-  // ✅ Переход после экрана результатов (advanceFloor ТОЛЬКО здесь)
   const continueAfterGame = () => {
     if (!runManager.isRunActive() || runManager.getHp() <= 0) {
       setScreen('main');
@@ -207,16 +249,22 @@ function App() {
     const currentFloor = runManager.getCurrentFloor();
     const maxFloors = runManager.getState().maxFloors;
 
-    // ✅ ПРАВИЛЬНЫЙ ПОРЯДОК: сначала проверяем, потом advanceFloor
     if (currentFloor >= maxFloors) {
-      runManager.advanceFloor(); // установит status = 'completed'
+      runManager.getState().status = 'completed';
       setMessage('Забег завершён! Поздравляем!');
       setScreen('main');
     } else {
       runManager.advanceFloor();
-      setMessage(`Этаж ${runManager.getCurrentFloor()}! Выберите перк.`);
-      setAvailablePerks(getRandomPerks(3));
-      setShowPerkSelection(true);
+      const newFloor = runManager.getCurrentFloor();
+
+      // ✅ Таро реже: только на чётных этажах (2, 4)
+      if (newFloor % 2 === 0) {
+        setMessage(`Этаж ${newFloor}! Выберите перк.`);
+        setAvailablePerks(getRandomPerks(3));
+        setShowPerkSelection(true);
+      } else {
+        setMessage(`Этаж ${newFloor}! Начинайте игру.`);
+      }
       setScreen('main');
     }
   };
@@ -232,7 +280,6 @@ function App() {
   const state = game?.getState();
   const runState = runManager.getState();
 
-  // Подсчёт очков для отображения
   const getPlayerScore = () => {
     if (!state || state.state !== 'playerTurn') return 0;
     const currentHand = state.playerHands[state.currentHandIndex];
@@ -253,8 +300,29 @@ function App() {
     return 0;
   };
 
-  // ========== ЭКРАН РЕЗУЛЬТАТОВ ИГРЫ ==========
+  // ✅ Счётчик карт в колоде
+  const cardsOnTable = state
+    ? state.state === 'playerTurn'
+      ? state.playerHands.flat().length + state.dealerHand.length
+      : state.state === 'dealerTurn' || state.state === 'gameOver'
+      ? state.playerHands.flat().length + state.dealerHand.length
+      : 0
+    : 0;
+  const deckRemaining = Math.max(0, 52 - cardsOnTable);
+
+  // ========== ЭКРАН РЕЗУЛЬТАТОВ ==========
   if (screen === 'results' && lastResult) {
+    const isBust = lastResult.playerBust;
+    const resultTitle = isBust
+      ? '💥 BUST!'
+      : lastResult.result === 'blackjack'
+      ? '🎉 BLACKJACK!'
+      : lastResult.result === 'playerWin'
+      ? '✅ Победа!'
+      : lastResult.result === 'push'
+      ? '🤝 Ничья'
+      : '❌ Проигрыш';
+
     return (
       <div style={{
         padding: '20px',
@@ -278,23 +346,30 @@ function App() {
           width: '100%'
         }}>
           <h1 style={{ fontSize: '48px', marginBottom: '20px' }}>
-            {lastResult.result === 'blackjack' && '🎉 BLACKJACK!'}
-            {lastResult.result === 'playerWin' && '✅ Победа!'}
-            {lastResult.result === 'push' && '🤝 Ничья'}
-            {lastResult.result === 'dealerWin' && '❌ Проигрыш'}
+            {resultTitle}
           </h1>
 
           <div style={{ marginBottom: '30px', fontSize: '20px' }}>
             <div style={{ marginBottom: '15px' }}>
               <div style={{ color: '#a0a0a0', marginBottom: '5px' }}>Ваш счёт:</div>
-              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#4CAF50' }}>
+              <div style={{
+                fontSize: '32px',
+                fontWeight: 'bold',
+                color: isBust ? '#e74c3c' : '#4CAF50'
+              }}>
                 {lastResult.playerScore}
+                {isBust && ' (перебор)'}
               </div>
             </div>
             <div>
               <div style={{ color: '#a0a0a0', marginBottom: '5px' }}>Счёт дилера:</div>
-              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#e74c3c' }}>
+              <div style={{
+                fontSize: '32px',
+                fontWeight: 'bold',
+                color: isBust ? '#555' : '#e74c3c'
+              }}>
                 {lastResult.dealerScore}
+                {isBust && ' (не важно)'}
               </div>
             </div>
           </div>
@@ -359,12 +434,7 @@ function App() {
       overflow: 'hidden',
       position: 'relative'
     }}>
-      {/* Основной контент */}
-      <div style={{
-        flex: 1,
-        padding: '20px',
-        overflowY: 'auto'
-      }}>
+      <div style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
         <h1 style={{ textAlign: 'center', fontSize: '48px', margin: '20px 0' }}>
           🃏 Blackjack Roguelike
         </h1>
@@ -381,7 +451,7 @@ function App() {
             ❤️ HP: <strong>{runState.hp}/{runState.maxHp}</strong>
           </div>
           <div style={{ fontSize: '18px', color: '#a0a0a0' }}>
-            Этаж: {runState.currentFloor}/{runState.maxFloors} |
+            Этаж: {Math.min(runState.currentFloor, runState.maxFloors)}/{runState.maxFloors} |
             Игр: {runState.gamesPlayed} |
             Побед: {runState.gamesWon}
           </div>
@@ -390,9 +460,14 @@ function App() {
               Перки: {runState.perks.join(', ')}
             </div>
           )}
+          {runState.usedPerks && runState.usedPerks.length > 0 && (
+            <div style={{ fontSize: '14px', marginTop: '5px', color: '#95a5a6' }}>
+              Использованы: {runState.usedPerks.join(', ')}
+            </div>
+          )}
         </div>
 
-        {/* Главный экран — выбор ставки или новый забег */}
+        {/* Новый забег / конец забега */}
         {screen === 'main' && !runManager.isRunActive() && (
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '32px', marginBottom: '20px' }}>
@@ -415,6 +490,7 @@ function App() {
           </div>
         )}
 
+        {/* Выбор ставки */}
         {screen === 'main' && runManager.isRunActive() && !game && (
           <div style={{ textAlign: 'center' }}>
             <div style={{ marginBottom: '20px' }}>
@@ -440,10 +516,16 @@ function App() {
               <div style={{ textAlign: 'center' }}>
                 <div style={{ color: '#a0a0a0', marginBottom: '5px' }}>Дилер:</div>
                 <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#e74c3c' }}>
-                  {state?.state === 'playerTurn'
-                    ? `${getDealerVisibleScore()} + ?`   // ✅ было "10?", стало "10 + ?"
+                  {state.state === 'playerTurn'
+                    ? `${getDealerVisibleScore()} + ?`
                     : getDealerVisibleScore()}
                 </div>
+                {/* 🗼 БЕЙДЖ БАШНИ */}
+                {game.isTowerApplied() && (
+                  <div style={{ fontSize: '13px', color: '#f39c12', marginTop: '4px' }}>
+                    🗼 Башня сработала
+                  </div>
+                )}
               </div>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ color: '#a0a0a0', marginBottom: '5px' }}>Игрок:</div>
@@ -453,13 +535,8 @@ function App() {
               </div>
             </div>
 
-            {/* ✅ GameTable рендерится ОДИН раз */}
-            <GameTable
-              state={state}
-              deckRemaining={52}
-            />
+            <GameTable state={state} deckRemaining={deckRemaining} />
 
-            {/* Сообщение */}
             <div style={{
               marginBottom: '20px',
               padding: '15px',
@@ -491,6 +568,15 @@ function App() {
                   {state.insuranceAvailable && state.insuranceBet === 0 && (
                     <button onClick={() => handleAction('insurance')} style={buttonStyle}>Insurance</button>
                   )}
+                  {/* 💀 Кнопка пересдачи (Death) */}
+                  {game.hasPerk('death') && !runManager.isPerkUsed('death') && (
+                    <button
+                      onClick={() => handleAction('reroll')}
+                      style={{...buttonStyle, background: '#9b59b6', borderColor: '#8e44ad'}}
+                    >
+                      💀 Пересдать
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -501,10 +587,7 @@ function App() {
         {showPerkSelection && (
           <div style={{
             position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
+            top: 0, left: 0, right: 0, bottom: 0,
             background: 'rgba(0, 0, 0, 0.7)',
             display: 'flex',
             alignItems: 'center',
@@ -521,11 +604,7 @@ function App() {
               <h2 style={{ marginBottom: '20px' }}>Выберите карту таро:</h2>
               <div style={{ display: 'flex', gap: '20px', justifyContent: 'center' }}>
                 {availablePerks.map(perk => (
-                  <TarotCard
-                    key={perk.id}
-                    perk={perk}
-                    onClick={() => selectPerk(perk)}
-                  />
+                  <TarotCard key={perk.id} perk={perk} onClick={() => selectPerk(perk)} />
                 ))}
               </div>
             </div>
@@ -533,14 +612,10 @@ function App() {
         )}
       </div>
 
-      {/* ✅ Кнопка выхода внизу */}
-      <div style={{
-        padding: '20px',
-        textAlign: 'center',
-        borderTop: '2px solid #16213e'
-      }}>
+      {/* Кнопка выхода */}
+      <div style={{ padding: '20px', textAlign: 'center', borderTop: '2px solid #16213e' }}>
         <button
-          onClick={handleLogout}
+          onClick={handleLogoutClick}
           style={{
             padding: '12px 30px',
             background: '#e74c3c',
@@ -556,14 +631,11 @@ function App() {
         </button>
       </div>
 
-      {/* ✅ Модалка подтверждения выхода с checkbox */}
+      {/* Модалка подтверждения выхода */}
       {showLogoutConfirm && (
         <div style={{
           position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
+          top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0, 0, 0, 0.8)',
           display: 'flex',
           alignItems: 'center',
@@ -584,7 +656,6 @@ function App() {
               <strong>Прогресс текущего забега не будет сохранён!</strong><br/>
               Вы уверены, что хотите выйти?
             </p>
-
             <div style={{
               background: '#0f3460',
               padding: '15px 20px',
@@ -592,13 +663,7 @@ function App() {
               marginBottom: '25px',
               textAlign: 'left'
             }}>
-              <label style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                cursor: 'pointer',
-                fontSize: '16px'
-              }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '16px' }}>
                 <input
                   type="checkbox"
                   checked={logoutChoice}
@@ -608,7 +673,6 @@ function App() {
                 <span>Показывать это предупреждение в будущем</span>
               </label>
             </div>
-
             <div style={{ display: 'flex', gap: '20px', justifyContent: 'center' }}>
               <button
                 onClick={cancelLogout}

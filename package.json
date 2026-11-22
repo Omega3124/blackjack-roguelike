@@ -13,17 +13,21 @@
   "devDependencies": {
     "@types/node": "*",
     "@types/seedrandom": "*",
+    "@vitest/coverage-v8": "*",
+    "@vitest/ui": "*",
     "eslint": "*",
     "eslint-config-prettier": "*",
     "prettier": "*",
     "tsx": "*",
     "typescript": "*",
     "typescript-eslint": "*",
-    "vitest": "*",
-    "@vitest/coverage-v8": "*",
-    "@vitest/ui": "*"
+    "vitest": "*"
   },
   "dependencies": {
+    "framer-motion": "^14.14.0",
     "seedrandom": "*"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
   }
 }

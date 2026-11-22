@@ -7,13 +7,19 @@ export class BlackjackGame {
   private state: GameState;
   private bet: number = 0;
   private balance: number = 0;
+  private perks: string[] = [];
+  private towerApplied = false;
 
   constructor(seed: string | number = Date.now()) {
     this.deck = new Deck(seed);
     this.state = { state: 'idle' };
   }
 
-  startGame(bet: number, balance: number): void {
+  isTowerApplied(): boolean {
+    return this.towerApplied;
+  }
+
+  startGame(bet: number, balance: number, perks: string[] = []): void {
     if (this.state.state !== 'idle') {
       throw new Error('Игра уже идёт!');
     }
@@ -22,11 +28,13 @@ export class BlackjackGame {
     }
     this.bet = bet;
     this.balance = balance;
+    this.perks = perks;
     this.state = {
       state: 'betting',
       balance,
       currentBet: bet
     };
+    this.towerApplied = false;
   }
 
   deal(): void {
@@ -41,7 +49,6 @@ export class BlackjackGame {
     const dealerHasBlackjack = isBlackjack(dealerHand);
     const dealerVisibleCard = dealerHand[0];
 
-    // Оба blackjack = push
     if (playerHasBlackjack && dealerHasBlackjack) {
       this.state = {
         state: 'gameOver',
@@ -55,7 +62,6 @@ export class BlackjackGame {
       return;
     }
 
-    // У игрока blackjack, у дилера нет = игрок выигрывает
     if (playerHasBlackjack && !dealerHasBlackjack) {
       this.state = {
         state: 'gameOver',
@@ -69,7 +75,6 @@ export class BlackjackGame {
       return;
     }
 
-    // У дилера blackjack, но открытая карта НЕ туз = страховка невозможна
     if (dealerHasBlackjack && dealerVisibleCard.rank !== 'A') {
       this.state = {
         state: 'gameOver',
@@ -83,7 +88,6 @@ export class BlackjackGame {
       return;
     }
 
-    // Обычный переход к ходу игрока
     this.state = {
       state: 'dealing',
       playerHand,
@@ -380,6 +384,16 @@ export class BlackjackGame {
     while (calculateHandScore(dealerHand).total < 17) {
       dealerHand = [...dealerHand, this.deck.draw()];
     }
+    // Башня
+    const dealerScore = calculateHandScore(dealerHand).total;
+    if (
+      this.perks.includes('the_tower') &&
+      ! this.towerApplied &&
+      dealerScore === 17
+      ) {
+      dealerHand = [...dealerHand, this.deck.draw()];
+      this.towerApplied = true;
+    }
     this.determineWinner(dealerHand);
   }
 
@@ -437,7 +451,8 @@ export class BlackjackGame {
     } else if (losses > playerWins) {
       finalResult = 'dealerWin';
     } else {
-      finalResult = 'push';
+      // ⚖️ Справедливость: ничья = победа игрока
+      finalResult = this.perks.includes('justice') ? 'playerWin' : 'push';
     }
 
     this.state = {
@@ -479,7 +494,9 @@ export class BlackjackGame {
       }
 
       if (playerHasBlackjack && !dealerHasBlackjack) {
-        totalPayout += Math.floor(bet * 2.5);
+        // ☀️ Солнце: 4:1 вместо 3:2
+        const isSun = this.perks.includes('the_sun');
+        totalPayout += isSun ? Math.floor(bet * 3.5) : Math.floor(bet * 2.5);
       } else if (dealerHasBlackjack) {
         if (playerHasBlackjack) {
           totalPayout += bet;
@@ -498,10 +515,49 @@ export class BlackjackGame {
     return totalPayout;
   }
 
+  // 💀 Смерть: пересдача карт
+  reroll(): boolean {
+    if (this.state.state !== 'dealing' && this.state.state !== 'playerTurn') {
+      return false;
+    }
+    if (!this.perks.includes('death')) {
+      return false;
+    }
+
+    this.deck.shuffle();
+    const playerHand: Card[] = [this.deck.draw(), this.deck.draw()];
+    const dealerHand: Card[] = [this.deck.draw(), this.deck.draw()];
+
+    if (this.state.state === 'dealing') {
+      this.state = { state: 'dealing', playerHand, dealerHand };
+    } else {
+      const playerState = this.state as any;
+      this.state = {
+        ...playerState,
+        playerHands: [playerHand],
+        currentHandIndex: 0,
+        bets: [this.bet],
+        splitAces: false,
+        insuranceBet: 0,
+        dealerHand
+      };
+    }
+    return true;
+  }
+
+  hasPerk(perkId: string): boolean {
+    return this.perks.includes(perkId);
+  }
+
+  getActivePerks(): string[] {
+    return this.perks;
+  }
+
   reset(): void {
     this.state = { state: 'idle' };
     this.bet = 0;
     this.balance = 0;
+    this.perks = [];
     this.deck.reset();
   }
 }
