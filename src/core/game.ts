@@ -9,14 +9,17 @@ export class BlackjackGame {
   private balance: number = 0;
   private perks: string[] = [];
   private towerApplied = false;
+  private wheelUsed = false;
+  private hangedManUsed = false;
+  private foolEffectId: string | null = null;
+  private moonActive = false;
+  private dealerStandThreshold = 17;
+  private lastDrawnCard: Card | null = null;
+  
 
   constructor(seed: string | number = Date.now()) {
     this.deck = new Deck(seed);
     this.state = { state: 'idle' };
-  }
-
-  isTowerApplied(): boolean {
-    return this.towerApplied;
   }
 
   startGame(bet: number, balance: number, perks: string[] = []): void {
@@ -26,21 +29,69 @@ export class BlackjackGame {
     if (bet <= 0 || bet > balance) {
       throw new Error('Некорректная ставка');
     }
-    this.bet = bet;
+    const actualBet = this.moonActive ? bet * 2 : bet;
+    this.bet = actualBet;
     this.balance = balance;
     this.perks = perks;
+    this.towerApplied = false;
+    this.wheelUsed = false;
+    this.hangedManUsed = false;
+    this.lastDrawnCard = null;
+    this.dealerStandThreshold = 17;
+    this.moonActive = false;
     this.state = {
       state: 'betting',
       balance,
-      currentBet: bet
+      currentBet: actualBet
     };
-    this.towerApplied = false;
+  }
+
+  applyFoolEffect(effectId: string): void {
+    this.foolEffectId = effectId;
+    if (effectId === 'fool_dealer_weak') {
+      this.dealerStandThreshold = 15;
+    }
+  }
+
+  activateMoon(): void {
+    this.moonActive = true;
+  }
+
+    setDealerDifficulty(floor: number): void {
+    if (floor <= 5) this.dealerStandThreshold = 17;      // 1: обычный
+    else if (floor <= 10) this.dealerStandThreshold = 18; // 2: сложнее
+    else if (floor <= 15) this.dealerStandThreshold = 19; // 3: хардкор
+    else this.dealerStandThreshold = 20;                  // 4+: эксперт
+  }
+
+  isMoonActive(): boolean {
+    return this.moonActive;
+  }
+
+  getFoolEffectId(): string | null {
+    return this.foolEffectId;
   }
 
   deal(): void {
     if (this.state.state !== 'betting') {
       throw new Error('Сначала нужно сделать ставку');
     }
+
+    if (this.foolEffectId === 'fool_auto_win') {
+      const playerHand: Card[] = [this.deck.draw(), this.deck.draw()];
+      const dealerHand: Card[] = [this.deck.draw(), this.deck.draw()];
+      this.state = {
+        state: 'gameOver',
+        result: 'playerWin',
+        playerHands: [playerHand],
+        dealerHand,
+        bets: [this.bet],
+        splitAces: false,
+        insuranceBet: 0
+      };
+      return;
+    }
+
     this.deck.shuffle();
     const playerHand: Card[] = [this.deck.draw(), this.deck.draw()];
     const dealerHand: Card[] = [this.deck.draw(), this.deck.draw()];
@@ -120,20 +171,17 @@ export class BlackjackGame {
     if (this.state.state !== 'playerTurn') {
       throw new Error('Сейчас не ход игрока');
     }
-
     const playerState = this.state;
     const idx = playerState.currentHandIndex;
     const currentHand = playerState.playerHands[idx];
-
     if (playerState.splitAces) {
       throw new Error('После разделения тузов нельзя брать карты');
     }
-
     const newCard = this.deck.draw();
+    this.lastDrawnCard = newCard;
     const newHand = [...currentHand, newCard];
     const newHands = [...playerState.playerHands];
     newHands[idx] = newHand;
-
     if (isBust(newHand)) {
       if (idx === playerState.playerHands.length - 1) {
         this.state = {
@@ -146,29 +194,19 @@ export class BlackjackGame {
         };
         this.dealerPlay(playerState.dealerHand);
       } else {
-        this.state = {
-          ...playerState,
-          playerHands: newHands,
-          currentHandIndex: idx + 1
-        };
+        this.state = { ...playerState, playerHands: newHands, currentHandIndex: idx + 1 };
       }
       return;
     }
-
-    this.state = {
-      ...playerState,
-      playerHands: newHands
-    };
+    this.state = { ...playerState, playerHands: newHands };
   }
 
   stand(): void {
     if (this.state.state !== 'playerTurn') {
       throw new Error('Сейчас не ход игрока');
     }
-
     const playerState = this.state;
     const idx = playerState.currentHandIndex;
-
     if (idx === playerState.playerHands.length - 1) {
       this.state = {
         state: 'dealerTurn',
@@ -180,10 +218,7 @@ export class BlackjackGame {
       };
       this.dealerPlay(playerState.dealerHand);
     } else {
-      this.state = {
-        ...playerState,
-        currentHandIndex: idx + 1
-      };
+      this.state = { ...playerState, currentHandIndex: idx + 1 };
     }
   }
 
@@ -191,32 +226,27 @@ export class BlackjackGame {
     if (this.state.state !== 'playerTurn') {
       throw new Error('Сейчас не ход игрока');
     }
-
     const playerState = this.state;
     const idx = playerState.currentHandIndex;
     const currentHand = playerState.playerHands[idx];
-
     if (currentHand.length !== 2) {
       throw new Error('Можно удваивать только на первых двух картах');
     }
     if (playerState.splitAces) {
       throw new Error('После разделения тузов нельзя удваивать');
     }
-
     const currentBet = playerState.bets[idx];
     if (this.balance < currentBet) {
       throw new Error('Недостаточно средств для удвоения');
     }
-
     const newBets = [...playerState.bets];
     newBets[idx] = currentBet * 2;
     this.balance -= currentBet;
-
     const newCard = this.deck.draw();
+    this.lastDrawnCard = newCard;
     const newHand = [...currentHand, newCard];
     const newHands = [...playerState.playerHands];
     newHands[idx] = newHand;
-
     if (isBust(newHand)) {
       if (idx === playerState.playerHands.length - 1) {
         this.state = {
@@ -229,16 +259,10 @@ export class BlackjackGame {
         };
         this.dealerPlay(playerState.dealerHand);
       } else {
-        this.state = {
-          ...playerState,
-          playerHands: newHands,
-          bets: newBets,
-          currentHandIndex: idx + 1
-        };
+        this.state = { ...playerState, playerHands: newHands, bets: newBets, currentHandIndex: idx + 1 };
       }
       return;
     }
-
     if (idx === playerState.playerHands.length - 1) {
       this.state = {
         state: 'dealerTurn',
@@ -250,12 +274,7 @@ export class BlackjackGame {
       };
       this.dealerPlay(playerState.dealerHand);
     } else {
-      this.state = {
-        ...playerState,
-        playerHands: newHands,
-        bets: newBets,
-        currentHandIndex: idx + 1
-      };
+      this.state = { ...playerState, playerHands: newHands, bets: newBets, currentHandIndex: idx + 1 };
     }
   }
 
@@ -263,11 +282,9 @@ export class BlackjackGame {
     if (this.state.state !== 'playerTurn') {
       throw new Error('Сейчас не ход игрока');
     }
-
     const playerState = this.state;
     const idx = playerState.currentHandIndex;
     const currentHand = playerState.playerHands[idx];
-
     if (currentHand.length !== 2) {
       throw new Error('Можно разделить только руку из двух карт');
     }
@@ -277,21 +294,16 @@ export class BlackjackGame {
     if (playerState.playerHands.length > 1) {
       throw new Error('Повторное разделение запрещено');
     }
-
     const currentBet = playerState.bets[idx];
     if (this.balance < currentBet) {
       throw new Error('Недостаточно средств для разделения');
     }
-
     const isAces = currentHand[0].rank === 'A';
-
     const hand1: Card[] = [currentHand[0]];
     const hand2: Card[] = [currentHand[1]];
     const newHands: Card[][] = [hand1, hand2];
     const newBets = [currentBet, currentBet];
-
     this.balance -= currentBet;
-
     if (isAces) {
       hand1.push(this.deck.draw());
       hand2.push(this.deck.draw());
@@ -306,10 +318,8 @@ export class BlackjackGame {
       this.dealerPlay(playerState.dealerHand);
       return;
     }
-
     hand1.push(this.deck.draw());
     hand2.push(this.deck.draw());
-
     this.state = {
       ...playerState,
       playerHands: newHands,
@@ -323,29 +333,23 @@ export class BlackjackGame {
     if (this.state.state !== 'playerTurn') {
       throw new Error('Сейчас не ход игрока');
     }
-
     const playerState = this.state;
-
     if (!playerState.insuranceAvailable) {
       throw new Error('Страховка недоступна — у дилера не туз');
     }
     if (playerState.insuranceBet > 0) {
       throw new Error('Страховка уже взята');
     }
-
     const currentHand = playerState.playerHands[playerState.currentHandIndex];
     if (currentHand.length !== 2) {
       throw new Error('Страховку можно взять только в начале раздачи');
     }
-
     const insuranceAmount = Math.floor(playerState.bets[0] / 2);
     if (this.balance < insuranceAmount) {
       throw new Error('Недостаточно средств для страховки');
     }
-
     this.balance -= insuranceAmount;
     const dealerHasBlackjack = isBlackjack(playerState.dealerHand);
-
     if (dealerHasBlackjack) {
       this.state = {
         state: 'gameOver',
@@ -358,11 +362,7 @@ export class BlackjackGame {
       };
       return;
     }
-
-    this.state = {
-      ...playerState,
-      insuranceBet: insuranceAmount
-    };
+    this.state = { ...playerState, insuranceBet: insuranceAmount };
   }
 
   getTotalStake(): number {
@@ -381,19 +381,17 @@ export class BlackjackGame {
 
   private dealerPlay(initialDealerHand: Card[]): void {
     let dealerHand = [...initialDealerHand];
-    while (calculateHandScore(dealerHand).total < 17) {
+    while (calculateHandScore(dealerHand).total < this.dealerStandThreshold) {
       dealerHand = [...dealerHand, this.deck.draw()];
     }
-    // Башня
-    const dealerScore = calculateHandScore(dealerHand).total;
-    if (
-      this.perks.includes('the_tower') &&
-      ! this.towerApplied &&
-      dealerScore === 17
-      ) {
-      dealerHand = [...dealerHand, this.deck.draw()];
-      this.towerApplied = true;
-    }
+    // Башня: только если у дилера ровно threshold
+    if (this.perks.includes('the_tower') && !this.towerApplied) {
+      const dealerScore = calculateHandScore(dealerHand).total;
+      if (dealerScore === this.dealerStandThreshold) {
+        dealerHand = [...dealerHand, this.deck.draw()];
+        this.towerApplied = true;
+        }
+      }
     this.determineWinner(dealerHand);
   }
 
@@ -401,7 +399,6 @@ export class BlackjackGame {
     if (this.state.state !== 'dealerTurn') {
       throw new Error('Нельзя определить победителя сейчас');
     }
-
     const playerState = this.state;
     const playerHands = playerState.playerHands;
     const dealerScore = calculateHandScore(dealerHand).total;
@@ -417,12 +414,10 @@ export class BlackjackGame {
       const hand = playerHands[i];
       const playerScore = calculateHandScore(hand).total;
       const playerHasBlackjack = isBlackjack(hand) && !splitAces;
-
       if (playerScore > 21) {
         losses++;
         continue;
       }
-
       if (dealerHasBlackjack) {
         if (playerHasBlackjack) {
           pushes++;
@@ -449,10 +444,14 @@ export class BlackjackGame {
     } else if (playerWins > losses) {
       finalResult = 'playerWin';
     } else if (losses > playerWins) {
-      finalResult = 'dealerWin';
+      if (this.perks.includes('the_hanged_man') && !this.hangedManUsed) {
+        finalResult = 'push';
+        this.hangedManUsed = true;
+      } else {
+        finalResult = 'dealerWin';
+      }
     } else {
-      // ⚖️ Справедливость: ничья = победа игрока
-      finalResult = this.perks.includes('justice') ? 'playerWin' : 'push';
+      finalResult = 'push';
     }
 
     this.state = {
@@ -474,7 +473,6 @@ export class BlackjackGame {
     if (this.state.state !== 'gameOver') {
       return 0;
     }
-
     const gameOverState = this.state;
     const dealerHand = gameOverState.dealerHand;
     const dealerHasBlackjack = isBlackjack(dealerHand);
@@ -485,7 +483,7 @@ export class BlackjackGame {
 
     for (let i = 0; i < gameOverState.playerHands.length; i++) {
       const hand = gameOverState.playerHands[i];
-      const bet = gameOverState.bets[i];
+      let bet = gameOverState.bets[i];
       const playerScore = calculateHandScore(hand).total;
       const playerHasBlackjack = isBlackjack(hand) && !splitAces;
 
@@ -493,10 +491,12 @@ export class BlackjackGame {
         continue;
       }
 
+      if (this.foolEffectId === 'fool_double_payout') {
+        bet = bet * 2;
+      }
+
       if (playerHasBlackjack && !dealerHasBlackjack) {
-        // ☀️ Солнце: 4:1 вместо 3:2
-        const isSun = this.perks.includes('the_sun');
-        totalPayout += isSun ? Math.floor(bet * 3.5) : Math.floor(bet * 2.5);
+        totalPayout += Math.floor(bet * 2.5);
       } else if (dealerHasBlackjack) {
         if (playerHasBlackjack) {
           totalPayout += bet;
@@ -515,7 +515,6 @@ export class BlackjackGame {
     return totalPayout;
   }
 
-  // 💀 Смерть: пересдача карт
   reroll(): boolean {
     if (this.state.state !== 'dealing' && this.state.state !== 'playerTurn') {
       return false;
@@ -523,11 +522,9 @@ export class BlackjackGame {
     if (!this.perks.includes('death')) {
       return false;
     }
-
     this.deck.shuffle();
     const playerHand: Card[] = [this.deck.draw(), this.deck.draw()];
     const dealerHand: Card[] = [this.deck.draw(), this.deck.draw()];
-
     if (this.state.state === 'dealing') {
       this.state = { state: 'dealing', playerHand, dealerHand };
     } else {
@@ -545,12 +542,60 @@ export class BlackjackGame {
     return true;
   }
 
+  wheel(): boolean {
+    if (this.state.state !== 'playerTurn') {
+      return false;
+    }
+    if (!this.perks.includes('the_wheel') || this.wheelUsed) {
+      return false;
+    }
+    this.deck.shuffle();
+    const playerHand: Card[] = [this.deck.draw(), this.deck.draw()];
+    const dealerHand: Card[] = [this.deck.draw(), this.deck.draw()];
+    const playerState = this.state as any;
+    this.state = {
+      ...playerState,
+      playerHands: [playerHand],
+      currentHandIndex: 0,
+      bets: [this.bet],
+      splitAces: false,
+      insuranceBet: 0,
+      dealerHand
+    };
+    this.wheelUsed = true;
+    this.lastDrawnCard = null;
+    return true;
+  }
+
+  peekNextCard(): Card | null {
+    if (!this.perks.includes('the_moon')) {
+      return null;
+    }
+    return this.deck.peek();
+  }
+
+  getLastDrawnCard(): Card | null {
+    return this.lastDrawnCard;
+  }
+
   hasPerk(perkId: string): boolean {
     return this.perks.includes(perkId);
   }
 
-  getActivePerks(): string[] {
-    return this.perks;
+  isTowerApplied(): boolean {
+    return this.towerApplied;
+  }
+
+  isWheelUsed(): boolean {
+    return this.wheelUsed;
+  }
+
+  isHangedManUsed(): boolean {
+    return this.hangedManUsed;
+  }
+
+  getDeckRemaining(): number {
+    return this.deck.remaining();
   }
 
   reset(): void {
@@ -558,6 +603,13 @@ export class BlackjackGame {
     this.bet = 0;
     this.balance = 0;
     this.perks = [];
+    this.towerApplied = false;
+    this.wheelUsed = false;
+    this.hangedManUsed = false;
+    this.foolEffectId = null;
+    this.moonActive = false;
+    this.lastDrawnCard = null;
     this.deck.reset();
+    this.dealerStandThreshold = 17;
   }
 }

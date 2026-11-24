@@ -1,15 +1,16 @@
 export interface RunState {
   runNumber: number;
   currentFloor: number;
-  maxFloors: number;
+  floorsPerLocation: number;
   hp: number;
   maxHp: number;
   perks: string[];
   usedPerks: string[];
-  bossDefeated: boolean[];
   gamesPlayed: number;
   gamesWon: number;
-  status: 'active' | 'completed' | 'failed';
+  status: 'active' | 'failed';
+  foolEffectId: string | null;
+  moonActive: boolean;
 }
 
 export class RunManager {
@@ -23,15 +24,16 @@ export class RunManager {
     return {
       runNumber: 1,
       currentFloor: 1,
-      maxFloors: 5,
-      hp: 100,
-      maxHp: 100,
+      floorsPerLocation: 5,
+      hp: 50,
+      maxHp: 50,
       perks: [],
       usedPerks: [],
-      bossDefeated: [false, false, false, false, false],
       gamesPlayed: 0,
       gamesWon: 0,
-      status: 'active'
+      status: 'active',
+      foolEffectId: null,
+      moonActive: false
     };
   }
 
@@ -47,36 +49,51 @@ export class RunManager {
     this.state = state;
   }
 
+  getCurrentLocation(): number {
+    return Math.floor((this.state.currentFloor - 1) / this.state.floorsPerLocation) + 1;
+  }
+
+  isNewLocation(): boolean {
+    const f = this.state.currentFloor;
+    return f > 1 && (f - 1) % this.state.floorsPerLocation === 0;
+  }
+
   updateHp(hpChange: number): void {
     this.state.hp = Math.max(0, Math.min(this.state.maxHp, this.state.hp + hpChange));
     this.state.gamesPlayed++;
-    
     if (hpChange > 0) {
       this.state.gamesWon++;
     }
-
     if (this.state.hp <= 0) {
       this.state.status = 'failed';
     }
   }
 
+  heal(amount: number): void {
+    this.state.hp = Math.min(this.state.maxHp, this.state.hp + amount);
+  }
+
   increaseMaxHp(amount: number): void {
-    this.state.maxHp += amount;
-    this.state.hp += amount;
+    const maxAllowed = 150;
+    if (this.state.maxHp < maxAllowed) {
+      const actualAmount = Math.min(amount, maxAllowed - this.state.maxHp);
+      this.state.maxHp += actualAmount;
+      this.state.hp += actualAmount;
+    }
+  }
+
+  onNewLocation(): void {
+    this.state.hp = Math.min(this.state.maxHp, this.state.hp + 10);
+    this.state.usedPerks = [];
   }
 
   advanceFloor(): void {
     this.state.currentFloor++;
-    
-    if (this.state.currentFloor > this.state.maxFloors) {
-      this.state.status = 'completed';
-    }
   }
 
   addPerk(perkId: string): void {
-    // Максимум 2 активных перка
     if (this.state.perks.length >= 2) {
-      this.state.perks.shift(); // удаляем самый старый
+      this.state.perks.shift();
     }
     if (!this.state.perks.includes(perkId)) {
       this.state.perks.push(perkId);
@@ -85,7 +102,7 @@ export class RunManager {
 
   usePerk(perkId: string): boolean {
     if (this.state.usedPerks.includes(perkId)) {
-      return false; // уже использован
+      return false;
     }
     this.state.usedPerks.push(perkId);
     return true;
@@ -113,6 +130,22 @@ export class RunManager {
 
   getPerks(): string[] {
     return this.state.perks;
+  }
+
+  setFoolEffect(effectId: string | null): void {
+    this.state.foolEffectId = effectId;
+  }
+
+  getFoolEffect(): string | null {
+    return this.state.foolEffectId;
+  }
+
+  setMoonActive(active: boolean): void {
+    this.state.moonActive = active;
+  }
+
+  isMoonActive(): boolean {
+    return this.state.moonActive;
   }
 
   exportState(): RunState {

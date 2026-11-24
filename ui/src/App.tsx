@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { BlackjackGame } from '../../src/core/game';
 import { RunManager, createRunManager } from '../../src/roguelike/run';
-import { getRandomPerks, type Perk } from '../../src/roguelike/perks';
+import { getRandomPerks, getRandomFoolEffect, type Perk } from '../../src/roguelike/perks';
 import { calculateHandScore } from '../../src/core/hand';
 import { GameTable } from './components/GameTable';
 import { TarotCard } from './components/TarotCard';
@@ -19,9 +19,6 @@ interface GameResult {
   dealerBust?: boolean;
 }
 
-// ============================================================
-// AUTH GATE
-// ============================================================
 function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
 
@@ -46,9 +43,6 @@ function App() {
   return <Game key={token} onLogout={handleLogout} />;
 }
 
-// ============================================================
-// GAME
-// ============================================================
 function Game({ onLogout }: { onLogout: () => void }) {
   const [screen, setScreen] = useState<Screen>('main');
   const [lastResult, setLastResult] = useState<GameResult | null>(null);
@@ -61,6 +55,9 @@ function Game({ onLogout }: { onLogout: () => void }) {
   const [availablePerks, setAvailablePerks] = useState<Perk[]>([]);
   const [currentBet, setCurrentBet] = useState<number>(10);
   const [isDealerPlaying, setIsDealerPlaying] = useState(false);
+
+  const [showFoolModal, setShowFoolModal] = useState(false);
+  const [foolEffect, setFoolEffect] = useState<any>(null);
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [logoutChoice, setLogoutChoice] = useState<boolean>(true);
@@ -97,9 +94,9 @@ function Game({ onLogout }: { onLogout: () => void }) {
     setShowLogoutConfirm(false);
   };
 
-  // ========== УПРАВЛЕНИЕ ЗАБЕГОМ ==========
   const startNewRun = () => {
     runManager.startNewRun();
+    setCurrentBet(10);
     setMessage('Забег начат! Выберите ставку HP.');
     forceUpdate(n => n + 1);
   };
@@ -112,7 +109,21 @@ function Game({ onLogout }: { onLogout: () => void }) {
     }
     setCurrentBet(bet);
     const newGame = new BlackjackGame(`game-${Date.now()}`);
-    // ✅ Передаём перки в игру
+
+    // Усложнение дилера по этажу
+    newGame.setDealerDifficulty(runManager.getCurrentFloor());
+
+    if (runManager.isMoonActive()) {
+      newGame.activateMoon();
+      runManager.setMoonActive(false);
+    }
+
+    const foolEffectId = runManager.getFoolEffect();
+    if (foolEffectId) {
+      newGame.applyFoolEffect(foolEffectId);
+      runManager.setFoolEffect(null);
+    }
+
     newGame.startGame(bet, hp, runManager.getPerks());
     newGame.deal();
     const state = newGame.getState();
@@ -129,15 +140,14 @@ function Game({ onLogout }: { onLogout: () => void }) {
     forceUpdate(n => n + 1);
   };
 
-  // ========== ДЕЙСТВИЯ ИГРОКА ==========
-  const handleAction = (action: 'hit' | 'stand' | 'double' | 'split' | 'insurance' | 'reroll') => {
+  const handleAction = (action: 'hit' | 'stand' | 'double' | 'split' | 'insurance' | 'reroll' | 'wheel') => {
     if (!game) return;
     try {
       if (action === 'reroll') {
         const success = game.reroll();
         if (success) {
           runManager.usePerk('death');
-          setMessage('💀 Карты пересданы! (Перк "Смерть" использован)');
+          setMessage('💀 Карты пересданы!');
           forceUpdate(n => n + 1);
         } else {
           setMessage('Ошибка: невозможно пересдать карты');
@@ -145,12 +155,39 @@ function Game({ onLogout }: { onLogout: () => void }) {
         return;
       }
 
+      if (action === 'wheel') {
+        const success = game.wheel();
+        if (success) {
+          runManager.usePerk('the_wheel');
+          setMessage('🎡 Карты заменены! Колода перетасована.');
+          forceUpdate(n => n + 1);
+        } else {
+          setMessage('Ошибка: Колесо недоступно');
+        }
+        return;
+      }
+
       switch (action) {
-        case 'hit': game.hit(); break;
-        case 'stand': game.stand(); break;
-        case 'double': game.double(); break;
-        case 'split': game.split(); break;
-        case 'insurance': game.insurance(); break;
+        case 'hit':
+          game.hit();
+          break;
+        case 'stand':
+          game.stand();
+          break;
+        case 'double': {
+          const currentScore = getPlayerScore();
+          if (currentScore >= 17 && !window.confirm(`Double на ${currentScore}? Это рискованно!`)) {
+            return;
+          }
+          game.double();
+          break;
+        }
+        case 'split':
+          game.split();
+          break;
+        case 'insurance':
+          game.insurance();
+          break;
       }
 
       const state = game.getState();
@@ -199,27 +236,24 @@ function Game({ onLogout }: { onLogout: () => void }) {
     const totalStake = currentGame.getTotalStake();
     let hpChange = payout - totalStake;
 
-    // ✅ Считаем очки по всем рукам (фикс BUST при сплите)
     const playerScores = state.playerHands.map((h: any[]) => calculateHandScore(h).total);
     const dealerScore = calculateHandScore(state.dealerHand).total;
     const allBust = playerScores.every((s: number) => s > 21);
     const dealerBust = dealerScore > 21;
 
-    // ☀️ SUN: если проиграл и перк активен — HP не теряется
-    if (
-      hpChange < 0 &&
-      currentGame.hasPerk('the_sun') &&
-      !runManager.isPerkUsed('the_sun')
-    ) {
-      runManager.usePerk('the_sun');
-      hpChange = 0;
-      setMessage('☀️ Солнце спасло вас! HP не потеряно.');
+    // ☀️ SUN: при bust дилера +5 max HP
+    if (dealerBust && currentGame.hasPerk('the_sun')) {
+      runManager.increaseMaxHp(5);
     }
 
-    // ⚖️ JUSTICE: при ничьей +2 HP к макс. HP
-    if (state.result === 'push' && currentGame.hasPerk('justice')) {
-      runManager.increaseMaxHp(2);
-      hpChange += 2;
+    // ⚖️ JUSTICE: при проигрыше -5 HP меньше, минимум -5
+    if (state.result === 'dealerWin' && currentGame.hasPerk('justice')) {
+      hpChange = Math.max(hpChange + 5, -5);
+    }
+
+    // 🎁 fool_free_bet
+    if (hpChange < 0 && currentGame.getFoolEffectId() === 'fool_free_bet') {
+      hpChange = 0;
     }
 
     runManager.updateHp(hpChange);
@@ -246,37 +280,48 @@ function Game({ onLogout }: { onLogout: () => void }) {
       return;
     }
 
-    const currentFloor = runManager.getCurrentFloor();
-    const maxFloors = runManager.getState().maxFloors;
+    runManager.advanceFloor();
+    const newFloor = runManager.getCurrentFloor();
 
-    if (currentFloor >= maxFloors) {
-      runManager.getState().status = 'completed';
-      setMessage('Забег завершён! Поздравляем!');
-      setScreen('main');
+    if (runManager.isNewLocation()) {
+      runManager.onNewLocation();
+      setMessage(`🏰 Локация ${runManager.getCurrentLocation()}! +10 HP, перки сброшены. Выберите карту таро.`);
+      setAvailablePerks(getRandomPerks(3));
+      setShowPerkSelection(true);
     } else {
-      runManager.advanceFloor();
-      const newFloor = runManager.getCurrentFloor();
-
-      // ✅ Таро реже: только на чётных этажах (2, 4)
-      if (newFloor % 2 === 0) {
-        setMessage(`Этаж ${newFloor}! Выберите перк.`);
-        setAvailablePerks(getRandomPerks(3));
-        setShowPerkSelection(true);
-      } else {
-        setMessage(`Этаж ${newFloor}! Начинайте игру.`);
-      }
-      setScreen('main');
+      setMessage(`Этаж ${newFloor}. Начинайте игру.`);
     }
+    setScreen('main');
   };
 
   const selectPerk = (perk: Perk) => {
+    if (perk.id === 'the_fool') {
+      const effect = getRandomFoolEffect();
+      setFoolEffect(effect);
+      setShowFoolModal(true);
+      runManager.setFoolEffect(effect.id);
+      runManager.addPerk(perk.id);
+      setShowPerkSelection(false);
+      setMessage(`🃏 Шут дал вам: ${effect.name}! (${effect.description})`);
+      forceUpdate(n => n + 1);
+      return;
+    }
+
+    if (perk.id === 'the_moon') {
+      runManager.setMoonActive(true);
+      runManager.addPerk(perk.id);
+      setShowPerkSelection(false);
+      setMessage('🌙 Луна: следующая игра — ставки удваиваются!');
+      forceUpdate(n => n + 1);
+      return;
+    }
+
     runManager.addPerk(perk.id);
     setShowPerkSelection(false);
     setMessage(`Перк "${perk.name}" добавлен! Начните следующую игру.`);
     forceUpdate(n => n + 1);
   };
 
-  // ========== РЕНДЕР ==========
   const state = game?.getState();
   const runState = runManager.getState();
 
@@ -300,7 +345,7 @@ function Game({ onLogout }: { onLogout: () => void }) {
     return 0;
   };
 
-  // ✅ Счётчик карт в колоде
+  // ✅ Реальный счётчик карт в колоде
   const cardsOnTable = state
     ? state.state === 'playerTurn'
       ? state.playerHands.flat().length + state.dealerHand.length
@@ -310,7 +355,6 @@ function Game({ onLogout }: { onLogout: () => void }) {
     : 0;
   const deckRemaining = Math.max(0, 52 - cardsOnTable);
 
-  // ========== ЭКРАН РЕЗУЛЬТАТОВ ==========
   if (screen === 'results' && lastResult) {
     const isBust = lastResult.playerBust;
     const resultTitle = isBust
@@ -420,7 +464,6 @@ function Game({ onLogout }: { onLogout: () => void }) {
     );
   }
 
-  // ========== ГЛАВНЫЙ ЭКРАН / ИГРА ==========
   return (
     <div style={{
       width: '800px',
@@ -439,7 +482,6 @@ function Game({ onLogout }: { onLogout: () => void }) {
           🃏 Blackjack Roguelike
         </h1>
 
-        {/* Статус забега */}
         <div style={{
           marginBottom: '20px',
           padding: '15px',
@@ -451,9 +493,14 @@ function Game({ onLogout }: { onLogout: () => void }) {
             ❤️ HP: <strong>{runState.hp}/{runState.maxHp}</strong>
           </div>
           <div style={{ fontSize: '18px', color: '#a0a0a0' }}>
-            Этаж: {Math.min(runState.currentFloor, runState.maxFloors)}/{runState.maxFloors} |
-            Игр: {runState.gamesPlayed} |
-            Побед: {runState.gamesWon}
+            🏰 Локация {runManager.getCurrentLocation()} · Этаж {runState.currentFloor} |
+            Сложность: {
+              runState.currentFloor <= 5 ? '🟢 Обычная' :
+              runState.currentFloor <= 10 ? '🟡 Сложная' :
+              runState.currentFloor <= 15 ? '🟠 Хардкор' :
+              '🔴 Эксперт'
+            } |
+            Игр: {runState.gamesPlayed} | Побед: {runState.gamesWon}
           </div>
           {runState.perks.length > 0 && (
             <div style={{ fontSize: '16px', marginTop: '10px', color: '#f39c12' }}>
@@ -465,13 +512,22 @@ function Game({ onLogout }: { onLogout: () => void }) {
               Использованы: {runState.usedPerks.join(', ')}
             </div>
           )}
+          {runState.foolEffectId && (
+            <div style={{ fontSize: '14px', marginTop: '5px', color: '#e91e63' }}>
+              🃏 Эффект Шута активен
+            </div>
+          )}
+          {runState.moonActive && (
+            <div style={{ fontSize: '14px', marginTop: '5px', color: '#9b59b6' }}>
+              🌙 Луна: следующая ставка ×2
+            </div>
+          )}
         </div>
 
-        {/* Новый забег / конец забега */}
         {screen === 'main' && !runManager.isRunActive() && (
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '32px', marginBottom: '20px' }}>
-              {runState.status === 'completed' ? '🎉 Забег завершён!' : '💀 Забег провален'}
+              💀 Забег провален
             </div>
             <button
               onClick={startNewRun}
@@ -490,21 +546,68 @@ function Game({ onLogout }: { onLogout: () => void }) {
           </div>
         )}
 
-        {/* Выбор ставки */}
         {screen === 'main' && runManager.isRunActive() && !game && (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ marginBottom: '20px' }}>
-              <button onClick={() => startGame(5)} style={buttonStyle}>Ставка 5 HP</button>
-              <button onClick={() => startGame(10)} style={buttonStyle}>Ставка 10 HP</button>
-              <button onClick={() => startGame(20)} style={buttonStyle}>Ставка 20 HP</button>
+          <div style={{ textAlign: 'center', padding: '20px' }}>
+            <div style={{ fontSize: '20px', marginBottom: '15px' }}>
+              Ставка: <strong style={{ color: '#f39c12' }}>{currentBet} HP</strong>
             </div>
+            <input
+              type="range"
+              min={5}
+              max={runManager.getHp()}
+              step={5}
+              value={currentBet}
+              onChange={(e) => setCurrentBet(Number(e.target.value))}
+              style={{
+                width: '80%',
+                maxWidth: '400px',
+                height: '8px',
+                cursor: 'pointer'
+              }}
+            />
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              maxWidth: '420px',
+              margin: '10px auto 0',
+              fontSize: '12px',
+              color: '#a0a0a0'
+            }}>
+              <span>5 HP</span>
+              <span>{runManager.getHp()} HP</span>
+            </div>
+            <button
+              onClick={() => startGame(currentBet)}
+              style={{
+                marginTop: '20px',
+                padding: '15px 40px',
+                fontSize: '20px',
+                background: '#4CAF50',
+                color: 'white',
+                border: 'none',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                fontWeight: 'bold'
+              }}
+            >
+              Начать игру ({currentBet} HP)
+            </button>
+            {runManager.isMoonActive() && (
+              <div style={{
+                marginTop: '15px',
+                padding: '10px',
+                background: '#9b59b6',
+                borderRadius: '8px',
+                fontSize: '16px'
+              }}>
+                🌙 Луна: реальная ставка будет {currentBet * 2} HP
+              </div>
+            )}
           </div>
         )}
 
-        {/* Игровой экран */}
         {screen === 'playing' && game && state && (
           <div>
-            {/* Счёт игрока и дилера */}
             <div style={{
               display: 'flex',
               justifyContent: 'space-around',
@@ -520,10 +623,14 @@ function Game({ onLogout }: { onLogout: () => void }) {
                     ? `${getDealerVisibleScore()} + ?`
                     : getDealerVisibleScore()}
                 </div>
-                {/* 🗼 БЕЙДЖ БАШНИ */}
                 {game.isTowerApplied() && (
                   <div style={{ fontSize: '13px', color: '#f39c12', marginTop: '4px' }}>
                     🗼 Башня сработала
+                  </div>
+                )}
+                {game.isHangedManUsed() && (
+                  <div style={{ fontSize: '13px', color: '#9b59b6', marginTop: '4px' }}>
+                    🙃 Повешенный использован
                   </div>
                 )}
               </div>
@@ -535,7 +642,10 @@ function Game({ onLogout }: { onLogout: () => void }) {
               </div>
             </div>
 
-            <GameTable state={state} deckRemaining={deckRemaining} />
+            {/* Реальный счётчик карт */}
+            <GameTable state={state} deckRemaining={game.getDeckRemaining()} />
+
+            {/* УДАЛЁН блок с "Следующая карта" — Moon теперь про удвоение ставки */}
 
             <div style={{
               marginBottom: '20px',
@@ -550,7 +660,6 @@ function Game({ onLogout }: { onLogout: () => void }) {
               {message}
             </div>
 
-            {/* Кнопки действий */}
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
               {state.state === 'playerTurn' && !isDealerPlaying && (
                 <>
@@ -568,7 +677,6 @@ function Game({ onLogout }: { onLogout: () => void }) {
                   {state.insuranceAvailable && state.insuranceBet === 0 && (
                     <button onClick={() => handleAction('insurance')} style={buttonStyle}>Insurance</button>
                   )}
-                  {/* 💀 Кнопка пересдачи (Death) */}
                   {game.hasPerk('death') && !runManager.isPerkUsed('death') && (
                     <button
                       onClick={() => handleAction('reroll')}
@@ -577,13 +685,20 @@ function Game({ onLogout }: { onLogout: () => void }) {
                       💀 Пересдать
                     </button>
                   )}
+                  {game.hasPerk('the_wheel') && !runManager.isPerkUsed('the_wheel') && (
+                    <button
+                      onClick={() => handleAction('wheel')}
+                      style={{...buttonStyle, background: '#f39c12', borderColor: '#e67e22'}}
+                    >
+                      🎡 Колесо
+                    </button>
+                  )}
                 </>
               )}
             </div>
           </div>
         )}
 
-        {/* Выбор перка */}
         {showPerkSelection && (
           <div style={{
             position: 'fixed',
@@ -610,9 +725,52 @@ function Game({ onLogout }: { onLogout: () => void }) {
             </div>
           </div>
         )}
+
+        {showFoolModal && foolEffect && (
+          <div style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100
+          }}>
+            <div style={{
+              background: '#16213e',
+              padding: '40px',
+              borderRadius: '20px',
+              textAlign: 'center',
+              maxWidth: '400px',
+              border: '3px solid #e91e63'
+            }}>
+              <div style={{ fontSize: '64px', marginBottom: '20px' }}>{foolEffect.icon}</div>
+              <h2 style={{ color: '#e91e63', marginBottom: '15px' }}>🃏 The Fool</h2>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '10px' }}>
+                {foolEffect.name}
+              </div>
+              <div style={{ fontSize: '18px', color: '#a0a0a0', marginBottom: '30px' }}>
+                {foolEffect.description}
+              </div>
+              <button
+                onClick={() => setShowFoolModal(false)}
+                style={{
+                  padding: '12px 30px',
+                  background: '#4CAF50',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '16px'
+                }}
+              >
+                Понятно!
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Кнопка выхода */}
       <div style={{ padding: '20px', textAlign: 'center', borderTop: '2px solid #16213e' }}>
         <button
           onClick={handleLogoutClick}
@@ -631,7 +789,6 @@ function Game({ onLogout }: { onLogout: () => void }) {
         </button>
       </div>
 
-      {/* Модалка подтверждения выхода */}
       {showLogoutConfirm && (
         <div style={{
           position: 'fixed',

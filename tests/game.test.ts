@@ -86,13 +86,13 @@ describe('BlackjackGame', () => {
   });
 
   it('should not allow double after hit', () => {
-    const game = new BlackjackGame('double-after-hit-seed');
-    game.startGame(100, 1000);
+    const game = new BlackjackGame(42);
+    game.startGame(10, 50);
     game.deal();
     game.playerTurn();
     game.hit();
-    expect(() => game.double()).toThrow('Можно удваивать только на первых двух картах');
-  });
+  expect(() => game.double()).toThrow('Можно удваивать только на первых двух картах');
+});
 
 it('should not allow double without balance', () => {
   // Сценарий: после split баланс = 0, пытаемся удвоить
