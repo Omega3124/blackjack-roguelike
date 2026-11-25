@@ -180,6 +180,175 @@ app.get('/api/runs/active', authMiddleware, (req: any, res) => {
   res.json({ ...run, perks: JSON.parse(run.perks) });
 });
 
+// ========== НАСТРОЙКИ ПОЛЬЗОВАТЕЛЯ ==========
+app.get('/api/settings', authMiddleware, (req: any, res) => {
+  try {
+    const u: any = db.prepare(
+      'SELECT show_logout_warning FROM users WHERE id = ?'
+    ).get(req.user.userId);
+    res.json({ showLogoutWarning: u ? u.show_logout_warning === 1 : true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.put('/api/settings', authMiddleware, (req: any, res) => {
+  try {
+    const { showLogoutWarning } = req.body;
+    db.prepare(
+      'UPDATE users SET show_logout_warning = ? WHERE id = ?'
+    ).run(showLogoutWarning ? 1 : 0, req.user.userId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== ОБНОВЛЕНИЕ ЗАБЕГА ==========
+app.put('/api/runs/:id', authMiddleware, (req: any, res) => {
+  try {
+    const { currentFloor, maxFloors, hp, maxHp, perks, usedPerks, status, gamesPlayed, gamesWon } = req.body;
+    db.prepare(`
+      UPDATE runs 
+      SET current_floor=?, max_floors=?, hp=?, max_hp=?, 
+          perks=?, used_perks=?, status=?, games_played=?, games_won=?
+      WHERE id=? AND user_id=?
+    `).run(
+      currentFloor || 1, maxFloors || 15, hp || 50, maxHp || 50,
+      JSON.stringify(perks || []), JSON.stringify(usedPerks || []),
+      status || 'active', gamesPlayed || 0, gamesWon || 0,
+      req.params.id, req.user.userId
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== ПОДРОБНАЯ СТАТИСТИКА ==========
+app.get('/api/stats/detailed', authMiddleware, (req: any, res) => {
+  try {
+    const uid = req.user.userId;
+    const sessions: any[] = db.prepare(
+      'SELECT * FROM game_sessions WHERE user_id = ?'
+    ).all(uid);
+    const runs: any[] = db.prepare(
+      'SELECT * FROM runs WHERE user_id = ?'
+    ).all(uid);
+
+    const wins = sessions.filter(s => s.result === 'playerWin' || s.result === 'blackjack').length;
+    const losses = sessions.filter(s => s.result === 'dealerWin').length;
+    const pushes = sessions.filter(s => s.result === 'push').length;
+    const blackjacks = sessions.filter(s => s.result === 'blackjack').length;
+
+    const perkUsage: Record<string, number> = {};
+    runs.forEach(run => {
+      try {
+        const perks = JSON.parse(run.perks || '[]');
+        perks.forEach((p: string) => { perkUsage[p] = (perkUsage[p] || 0) + 1; });
+      } catch {}
+    });
+
+    res.json({
+      games: {
+        total: sessions.length,
+        wins,
+        losses,
+        pushes,
+        blackjacks,
+        winRate: sessions.length > 0 ? (wins / sessions.length * 100).toFixed(1) : '0'
+      },
+      runs: {
+        total: runs.length,
+        completed: runs.filter(r => r.status === 'completed').length,
+        failed: runs.filter(r => r.status === 'failed').length,
+        completionRate: runs.length > 0 
+          ? (runs.filter(r => r.status === 'completed').length / runs.length * 100).toFixed(1) 
+          : '0'
+      },
+      perks: {
+        totalUsed: Object.values(perkUsage).reduce((a: number, b: number) => a + b, 0),
+        usage: perkUsage
+      },
+      cards: {
+        estimatedDrawn: sessions.length * 6
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== ОБНОВЛЕНИЕ ЗАБЕГА (АВТОСОХРАНЕНИЕ) ==========
+app.put('/api/runs/:id', authMiddleware, (req: any, res) => {
+  try {
+    const { currentFloor, maxFloors, hp, maxHp, perks, usedPerks, foolEffectId, moonActive, status, gamesPlayed, gamesWon } = req.body;
+    db.prepare(`
+      UPDATE runs 
+      SET current_floor=?, max_floors=?, hp=?, max_hp=?, 
+          perks=?, used_perks=?, fool_effect_id=?, moon_active=?,
+          status=?, games_played=?, games_won=?
+      WHERE id=? AND user_id=?
+    `).run(
+      currentFloor || 1, maxFloors || 999, hp || 50, maxHp || 50,
+      JSON.stringify(perks || []), JSON.stringify(usedPerks || []),
+      foolEffectId || null, moonActive ? 1 : 0,
+      status || 'active', gamesPlayed || 0, gamesWon || 0,
+      req.params.id, req.user.userId
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== ПОДРОБНАЯ СТАТИСТИКА ==========
+app.get('/api/stats/detailed', authMiddleware, (req: any, res) => {
+  try {
+    const uid = req.user.userId;
+    const sessions: any[] = db.prepare('SELECT * FROM game_sessions WHERE user_id = ?').all(uid);
+    const runs: any[] = db.prepare('SELECT * FROM runs WHERE user_id = ?').all(uid);
+
+    const wins = sessions.filter(s => s.result === 'playerWin' || s.result === 'blackjack').length;
+    const losses = sessions.filter(s => s.result === 'dealerWin').length;
+    const pushes = sessions.filter(s => s.result === 'push').length;
+    const blackjacks = sessions.filter(s => s.result === 'blackjack').length;
+
+    const perkUsage: Record<string, number> = {};
+    runs.forEach(run => {
+      try {
+        const perks = JSON.parse(run.perks || '[]');
+        perks.forEach((p: string) => { perkUsage[p] = (perkUsage[p] || 0) + 1; });
+      } catch {}
+    });
+
+    res.json({
+      games: {
+        total: sessions.length, wins, losses, pushes, blackjacks,
+        winRate: sessions.length > 0 ? (wins / sessions.length * 100).toFixed(1) : '0'
+      },
+      runs: {
+        total: runs.length,
+        completed: runs.filter(r => r.status === 'completed').length,
+        failed: runs.filter(r => r.status === 'failed').length
+      },
+      perks: {
+        totalUsed: Object.values(perkUsage).reduce((a: number, b: number) => a + b, 0),
+        usage: perkUsage
+      },
+      cards: { estimatedDrawn: sessions.length * 6 }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Сервер запущен на http://localhost:${PORT}`);
 });
@@ -222,4 +391,48 @@ app.put('/api/settings', authMiddleware, (req: any, res) => {
     console.error(error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
+});
+
+// Настройки пользователя
+app.get('/api/settings', authMiddleware, (req: any, res) => {
+  const u: any = db.prepare('SELECT show_logout_warning FROM users WHERE id = ?').get(req.user.userId);
+  res.json({ showLogoutWarning: u ? u.show_logout_warning === 1 : true });
+});
+app.put('/api/settings', authMiddleware, (req: any, res) => {
+  const { showLogoutWarning } = req.body;
+  db.prepare('UPDATE users SET show_logout_warning = ? WHERE id = ?')
+    .run(showLogoutWarning ? 1 : 0, req.user.userId);
+  res.json({ success: true });
+});
+
+// Обновление забега
+app.put('/api/runs/:id', authMiddleware, (req: any, res) => {
+  const { currentFloor, maxFloors, hp, maxHp, perks, usedPerks, status, gamesPlayed, gamesWon } = req.body;
+  db.prepare(`UPDATE runs SET current_floor=?, max_floors=?, hp=?, max_hp=?, perks=?, used_perks=?, status=?, games_played=?, games_won=? WHERE id=? AND user_id=?`)
+    .run(currentFloor||1, maxFloors||15, hp||50, maxHp||50,
+         JSON.stringify(perks||[]), JSON.stringify(usedPerks||[]),
+         status||'active', gamesPlayed||0, gamesWon||0, req.params.id, req.user.userId);
+  res.json({ success: true });
+});
+
+// Подробная статистика
+app.get('/api/stats/detailed', authMiddleware, (req: any, res) => {
+  const uid = req.user.userId;
+  const s: any[] = db.prepare('SELECT * FROM game_sessions WHERE user_id=?').all(uid);
+  const r: any[] = db.prepare('SELECT * FROM runs WHERE user_id=?').all(uid);
+  const wins = s.filter(x => x.result==='playerWin'||x.result==='blackjack').length;
+  const losses = s.filter(x => x.result==='dealerWin').length;
+  const pushes = s.filter(x => x.result==='push').length;
+  const blackjacks = s.filter(x => x.result==='blackjack').length;
+  const perkUsage: Record<string, number> = {};
+  r.forEach(run => JSON.parse(run.perks||'[]').forEach((p:string)=>{ perkUsage[p]=(perkUsage[p]||0)+1; }));
+  res.json({
+    games: { total: s.length, wins, losses, pushes, blackjacks,
+             winRate: s.length? (wins/s.length*100).toFixed(1):'0' },
+    runs: { total: r.length, completed: r.filter(x=>x.status==='completed').length,
+            failed: r.filter(x=>x.status==='failed').length,
+            completionRate: r.length? (r.filter(x=>x.status==='completed').length/r.length*100).toFixed(1):'0' },
+    perks: { totalUsed: Object.values(perkUsage).reduce((a,b)=>a+b,0), usage: perkUsage },
+    cards: { estimatedDrawn: s.length * 6 },
+  });
 });
