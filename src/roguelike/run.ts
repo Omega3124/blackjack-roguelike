@@ -23,20 +23,27 @@ export class RunManager {
 
   private createNewRun(): RunState {
     return {
-      runNumber: 1, currentFloor: 1, floorsPerLocation: 5,
-      hp: 50, maxHp: 50, perks: [], usedPerks: [],
-      gamesPlayed: 0, gamesWon: 0,
-      status: 'active', foolEffectId: null, moonActive: false,
+      runNumber: 1,
+      currentFloor: 1,
+      floorsPerLocation: 5,
+      hp: 50,
+      maxHp: 50,
+      perks: [],
+      usedPerks: [],
+      gamesPlayed: 0,
+      gamesWon: 0,
+      status: 'active',
+      foolEffectId: null,
+      moonActive: false,
     };
-  }
-
-  // ✅ Загрузка забега из БД
-  loadRun(state: RunState): void {
-    this.state = state;
   }
 
   startNewRun(): void {
     this.state = this.createNewRun();
+  }
+
+  loadRun(state: RunState): void {
+    this.state = state;
   }
 
   getTotalFloors(): number {
@@ -55,8 +62,12 @@ export class RunManager {
   updateHp(hpChange: number): void {
     this.state.hp = Math.max(0, Math.min(this.state.maxHp, this.state.hp + hpChange));
     this.state.gamesPlayed++;
-    if (hpChange > 0) this.state.gamesWon++;
-    if (this.state.hp <= 0) this.state.status = 'failed';
+    if (hpChange > 0) {
+      this.state.gamesWon++;
+    }
+    if (this.state.hp <= 0) {
+      this.state.status = 'failed';
+    }
   }
 
   heal(a: number): void {
@@ -82,8 +93,16 @@ export class RunManager {
   }
 
   addPerk(id: string): void {
-    if (this.state.perks.length >= 2) this.state.perks.shift();
-    if (!this.state.perks.includes(id)) this.state.perks.push(id);
+    if (this.state.perks.length >= 2) {
+      this.state.perks.shift();
+    }
+    if (!this.state.perks.includes(id)) {
+      this.state.perks.push(id);
+    }
+  }
+
+  removePerk(id: string): void {
+    this.state.perks = this.state.perks.filter(p => p !== id);
   }
 
   usePerk(id: string): boolean {
@@ -100,19 +119,45 @@ export class RunManager {
     return this.state.status === 'active';
   }
 
-  getCurrentFloor(): number { return this.state.currentFloor; }
-  getHp(): number { return this.state.hp; }
-  getMaxHp(): number { return this.state.maxHp; }
-  getPerks(): string[] { return this.state.perks; }
+  getCurrentFloor(): number {
+    return this.state.currentFloor;
+  }
 
-  setFoolEffect(id: string | null): void { this.state.foolEffectId = id; }
-  getFoolEffect(): string | null { return this.state.foolEffectId; }
+  getHp(): number {
+    return this.state.hp;
+  }
 
-  setMoonActive(v: boolean): void { this.state.moonActive = v; }
-  isMoonActive(): boolean { return this.state.moonActive; }
+  getMaxHp(): number {
+    return this.state.maxHp;
+  }
 
-  getState(): RunState { return this.state; }
-  exportState(): RunState { return { ...this.state }; }
+  getPerks(): string[] {
+    return this.state.perks;
+  }
+
+  setFoolEffect(id: string | null): void {
+    this.state.foolEffectId = id;
+  }
+
+  getFoolEffect(): string | null {
+    return this.state.foolEffectId;
+  }
+
+  setMoonActive(v: boolean): void {
+    this.state.moonActive = v;
+  }
+
+  isMoonActive(): boolean {
+    return this.state.moonActive;
+  }
+
+  getState(): RunState {
+    return this.state;
+  }
+
+  exportState(): RunState {
+    return { ...this.state };
+  }
 }
 
 export function createRunManager(): RunManager {

@@ -13,6 +13,7 @@ export class BlackjackGame {
   private hangedManUsed = false;
   private foolEffectId: string | null = null;
   private moonActive = false;
+  private magicianActive = false;
   private dealerStandThreshold = 17;
   private lastDrawnCard: Card | null = null;
   
@@ -37,7 +38,6 @@ export class BlackjackGame {
     this.wheelUsed = false;
     this.hangedManUsed = false;
     this.lastDrawnCard = null;
-    this.dealerStandThreshold = 17;
     this.moonActive = false;
     this.state = {
       state: 'betting',
@@ -53,9 +53,8 @@ export class BlackjackGame {
     }
   }
 
-  activateMoon(): void {
-    this.moonActive = true;
-  }
+  activateMoon(): void { this.moonActive = true; }
+  activateMagician(): void { this.magicianActive = true; }
 
     setDealerDifficulty(floor: number): void {
     if (floor <= 5) this.dealerStandThreshold = 17;      // 1: обычный
@@ -66,6 +65,10 @@ export class BlackjackGame {
 
   isMoonActive(): boolean {
     return this.moonActive;
+  }
+
+  isMagicianActive(): boolean {
+    return this.magicianActive;
   }
 
   getFoolEffectId(): string | null {
@@ -567,6 +570,12 @@ export class BlackjackGame {
     return true;
   }
 
+  getDealerHiddenCard(): Card | null {
+    if (!this.magicianActive) return null;
+    if (this.state.state === 'playerTurn') return this.state.dealerHand[1] ?? null;
+    return null;
+  }
+
   peekNextCard(): Card | null {
     if (!this.perks.includes('the_moon')) {
       return null;
@@ -608,6 +617,7 @@ export class BlackjackGame {
     this.hangedManUsed = false;
     this.foolEffectId = null;
     this.moonActive = false;
+    this.magicianActive = false;
     this.lastDrawnCard = null;
     this.deck.reset();
     this.dealerStandThreshold = 17;

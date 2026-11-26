@@ -308,40 +308,27 @@ app.put('/api/runs/:id', authMiddleware, (req: any, res) => {
 });
 
 // ========== ПОДРОБНАЯ СТАТИСТИКА ==========
-app.get('/api/stats/detailed', authMiddleware, (req: any, res) => {
+app.get('/api/stats/detailed', (req, res) => {
   try {
-    const uid = req.user.userId;
-    const sessions: any[] = db.prepare('SELECT * FROM game_sessions WHERE user_id = ?').all(uid);
-    const runs: any[] = db.prepare('SELECT * FROM runs WHERE user_id = ?').all(uid);
+    const sessions: any[] = db.prepare('SELECT * FROM game_sessions').all();
+    const runs: any[] = db.prepare('SELECT * FROM runs').all();
 
     const wins = sessions.filter(s => s.result === 'playerWin' || s.result === 'blackjack').length;
     const losses = sessions.filter(s => s.result === 'dealerWin').length;
     const pushes = sessions.filter(s => s.result === 'push').length;
     const blackjacks = sessions.filter(s => s.result === 'blackjack').length;
 
-    const perkUsage: Record<string, number> = {};
-    runs.forEach(run => {
-      try {
-        const perks = JSON.parse(run.perks || '[]');
-        perks.forEach((p: string) => { perkUsage[p] = (perkUsage[p] || 0) + 1; });
-      } catch {}
-    });
-
     res.json({
       games: {
-        total: sessions.length, wins, losses, pushes, blackjacks,
+        total: sessions.length,
+        wins, losses, pushes, blackjacks,
         winRate: sessions.length > 0 ? (wins / sessions.length * 100).toFixed(1) : '0'
       },
       runs: {
         total: runs.length,
         completed: runs.filter(r => r.status === 'completed').length,
         failed: runs.filter(r => r.status === 'failed').length
-      },
-      perks: {
-        totalUsed: Object.values(perkUsage).reduce((a: number, b: number) => a + b, 0),
-        usage: perkUsage
-      },
-      cards: { estimatedDrawn: sessions.length * 6 }
+      }
     });
   } catch (error) {
     console.error(error);

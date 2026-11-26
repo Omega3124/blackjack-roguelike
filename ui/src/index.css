@@ -151,9 +151,9 @@ code {
   }
 }
 
-.tarot-card {
-  transition: transform 0.2s, box-shadow 0.2s;
-}
+
+.tarot-card img { display: block; }
+.tarot-card { transition: box-shadow 0.2s; }
 .tarot-card:hover {
   z-index: 10;
 }
